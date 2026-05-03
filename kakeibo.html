@@ -1,0 +1,1202 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>家計資産管理</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3250;
+    --accent: #4f8ef7;
+    --accent2: #7c5fe6;
+    --green: #34d399;
+    --red: #f87171;
+    --yellow: #fbbf24;
+    --text: #e8eaf6;
+    --text2: #8b92b8;
+    --text3: #5a6190;
+    --font: 'Noto Sans JP', sans-serif;
+    --mono: 'DM Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ナビゲーション - PC */
+  nav {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    height: 56px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .nav-logo {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-right: 32px;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+  }
+
+  .nav-tabs {
+    display: flex;
+    gap: 4px;
+    flex: 1;
+  }
+
+  .nav-tab {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    color: var(--text2);
+    font-family: var(--font);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .nav-tab:hover { background: var(--surface2); color: var(--text); }
+  .nav-tab.active { background: var(--surface2); color: var(--accent); font-weight: 500; }
+
+  .nav-status {
+    font-size: 12px;
+    color: var(--text3);
+    font-family: var(--mono);
+    white-space: nowrap;
+    margin-left: 16px;
+  }
+
+  .nav-status.ok { color: var(--green); }
+  .nav-status.err { color: var(--red); }
+
+  /* メインコンテンツ */
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px 24px;
+  }
+
+  /* スマホ: ボトムタブバー */
+  @media (max-width: 600px) {
+    nav {
+      display: none;
+    }
+
+    main {
+      padding: 16px 12px;
+      padding-bottom: 80px;
+    }
+
+    /* ボトムタブバー */
+    #bottomNav {
+      display: flex;
+    }
+  }
+
+  #bottomNav {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    z-index: 200;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .bottom-tab {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 0;
+    border: none;
+    background: transparent;
+    color: var(--text3);
+    font-family: var(--font);
+    font-size: 10px;
+    cursor: pointer;
+    gap: 4px;
+    transition: color 0.15s;
+  }
+
+  .bottom-tab .tab-icon { font-size: 20px; line-height: 1; }
+  .bottom-tab.active { color: var(--accent); }
+
+  /* スマホ用ステータス表示 */
+  #mobileStatus {
+    display: none;
+    text-align: center;
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--text3);
+    padding: 6px 0 0;
+    margin-bottom: 12px;
+  }
+
+  #mobileStatus.ok { color: var(--green); }
+  #mobileStatus.err { color: var(--red); }
+
+  @media (max-width: 600px) {
+    #mobileStatus { display: block; }
+  }
+
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* カード */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+
+  .card-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
+
+  /* ダッシュボード */
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  @media (max-width: 768px) {
+    .dashboard-grid { grid-template-columns: 1fr; }
+  }
+
+  .metric-value {
+    font-size: 28px;
+    font-weight: 700;
+    font-family: var(--mono);
+    color: var(--text);
+    line-height: 1.2;
+  }
+
+  .metric-sub {
+    font-size: 13px;
+    color: var(--text2);
+    margin-top: 6px;
+  }
+
+  .metric-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 8px;
+  }
+
+  .badge-green { background: rgba(52,211,153,0.15); color: var(--green); }
+  .badge-red { background: rgba(248,113,113,0.15); color: var(--red); }
+  .badge-yellow { background: rgba(251,191,36,0.15); color: var(--yellow); }
+
+  .progress-bar {
+    height: 6px;
+    background: var(--surface2);
+    border-radius: 3px;
+    margin-top: 12px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    transition: width 0.8s ease;
+  }
+
+  .owner-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .owner-row:last-child { border-bottom: none; }
+
+  .owner-name {
+    font-size: 14px;
+    color: var(--text2);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .owner-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  .dot-yuichiro { background: var(--accent); }
+  .dot-yoko { background: var(--accent2); }
+
+  .owner-amount {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 500;
+  }
+
+  .chart-container {
+    position: relative;
+    height: 240px;
+    margin-top: 16px;
+  }
+
+  /* 月次入力 */
+  .input-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+  }
+
+  .month-display {
+    font-size: 22px;
+    font-weight: 700;
+    font-family: var(--mono);
+  }
+
+  @media (max-width: 600px) {
+    .month-display { font-size: 18px; }
+    .card { padding: 16px; }
+    .metric-value { font-size: 22px; }
+    .input-header { margin-bottom: 16px; }
+  }
+
+  .month-nav {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .month-btn {
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .month-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .owner-section {
+    margin-bottom: 24px;
+  }
+
+  .owner-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .input-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(46,50,80,0.5);
+  }
+
+  .input-row:last-child { border-bottom: none; }
+
+  .input-name {
+    flex: 1;
+    font-size: 14px;
+    color: var(--text);
+  }
+
+  .input-type {
+    font-size: 11px;
+    color: var(--text3);
+    width: 60px;
+    text-align: right;
+  }
+
+  .amount-input {
+    width: 160px;
+    padding: 8px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    text-align: right;
+    transition: border-color 0.15s;
+    -moz-appearance: textfield;
+  }
+
+  .amount-input::-webkit-outer-spin-button,
+  .amount-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .amount-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  @media (max-width: 600px) {
+    .input-type { display: none; }
+    .amount-input { width: 120px; }
+  }
+
+  .save-area {
+    margin-top: 32px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .total-preview {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--text2);
+  }
+
+  .total-preview span {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .btn-primary {
+    padding: 12px 32px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-family: var(--font);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .btn-primary:hover { background: #3a7de8; transform: translateY(-1px); }
+  .btn-primary:active { transform: translateY(0); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  /* 設定 */
+  .settings-section {
+    margin-bottom: 32px;
+  }
+
+  .settings-title {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .settings-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(46,50,80,0.5);
+  }
+
+  .settings-row:last-child { border-bottom: none; }
+
+  .settings-label {
+    flex: 1;
+    font-size: 14px;
+  }
+
+  .settings-input {
+    width: 200px;
+    padding: 8px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    transition: border-color 0.15s;
+  }
+
+  .settings-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .btn-secondary {
+    padding: 8px 20px;
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    font-family: var(--font);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .btn-secondary:hover { background: rgba(79,142,247,0.1); }
+
+  /* トースト通知 */
+  #toast {
+    position: fixed;
+    bottom: 32px;
+    right: 32px;
+    padding: 14px 24px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.25s;
+    z-index: 999;
+    pointer-events: none;
+  }
+
+  #toast.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  #toast.success { background: rgba(52,211,153,0.2); border: 1px solid var(--green); color: var(--green); }
+  #toast.error { background: rgba(248,113,113,0.2); border: 1px solid var(--red); color: var(--red); }
+  #toast.info { background: rgba(79,142,247,0.2); border: 1px solid var(--accent); color: var(--accent); }
+
+  /* ローディング */
+  .loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 60px;
+    color: var(--text3);
+    font-size: 14px;
+    gap: 12px;
+  }
+
+  .spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* 設定画面のトークン表示 */
+  .token-display {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text3);
+    padding: 8px 12px;
+    background: var(--surface2);
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    word-break: break-all;
+  }
+
+  .section-gap { margin-top: 24px; }
+
+  /* セーブ進捗 */
+  .save-progress {
+    font-size: 13px;
+    color: var(--text2);
+    font-family: var(--mono);
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">💴 家計資産管理</div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="showPage('dashboard', this)">📊 ダッシュボード</button>
+    <button class="nav-tab" onclick="showPage('input', this)">✏️ 月次入力</button>
+    <button class="nav-tab" onclick="showPage('settings', this)">⚙️ 設定</button>
+  </div>
+  <div class="nav-status" id="navStatus">読み込み中...</div>
+</nav>
+
+<div id="bottomNav">
+  <button class="bottom-tab active" onclick="showPage('dashboard', this)">
+    <span class="tab-icon">📊</span>ダッシュボード
+  </button>
+  <button class="bottom-tab" onclick="showPage('input', this)">
+    <span class="tab-icon">✏️</span>月次入力
+  </button>
+  <button class="bottom-tab" onclick="showPage('settings', this)">
+    <span class="tab-icon">⚙️</span>設定
+  </button>
+</div>
+
+<main>
+<div id="mobileStatus">● 読み込み中...</div>
+
+  <!-- ダッシュボード -->
+  <div id="page-dashboard" class="page active">
+    <div class="input-header" style="margin-bottom:24px;">
+      <div class="month-display" id="dashMonthLabel">2026-05</div>
+      <div class="month-nav">
+        <button class="month-btn" onclick="changeDashMonth(-1)">← 前月</button>
+        <button class="month-btn" onclick="changeDashMonth(1)">次月 →</button>
+      </div>
+    </div>
+    <div id="dashboardContent">
+      <div class="loading"><div class="spinner"></div>データ読み込み中...</div>
+    </div>
+  </div>
+
+  <!-- 月次入力 -->
+  <div id="page-input" class="page">
+    <div class="input-header">
+      <div class="month-display" id="currentMonthLabel">2026-05</div>
+      <div class="month-nav">
+        <button class="month-btn" onclick="changeMonth(-1)">← 前月</button>
+        <button class="month-btn" onclick="changeMonth(1)">次月 →</button>
+      </div>
+    </div>
+    <div class="card">
+      <div id="inputContent">
+        <div class="loading"><div class="spinner"></div>口座データ読み込み中...</div>
+      </div>
+      <div class="save-area">
+        <div class="total-preview">入力合計: <span id="inputTotal">¥0</span></div>
+        <button class="btn-primary" id="saveBtn" onclick="saveBalances()">保存する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 設定 -->
+  <div id="page-settings" class="page">
+    <div class="card">
+      <div class="settings-section">
+        <div class="settings-title">🔑 Notion APIトークン</div>
+        <div class="settings-row">
+          <div class="settings-label">APIトークン（secret_で始まる文字列）</div>
+        </div>
+        <div class="settings-row">
+          <input type="password" class="settings-input" id="tokenInput" placeholder="ntn_xxxxxxxxxxxxxxxx" style="width:100%; max-width:500px;">
+        </div>
+        <div class="settings-row">
+          <button class="btn-secondary" onclick="saveToken()">トークンを保存</button>
+          <div id="currentToken" class="token-display" style="flex:1; margin-left:16px;"></div>
+        </div>
+      </div>
+
+      <div class="settings-section section-gap">
+        <div class="settings-title">🎯 目標金額</div>
+        <div class="settings-row">
+          <div class="settings-label">目標総資産額（円）</div>
+          <input type="number" class="settings-input" id="targetInput" placeholder="30000000">
+          <button class="btn-secondary" onclick="saveTarget()">更新</button>
+        </div>
+      </div>
+
+      <div class="settings-section section-gap">
+        <div class="settings-title">ℹ️ DB接続情報</div>
+        <div class="settings-row">
+          <div class="settings-label" style="color:var(--text2); font-size:13px;">Workers URL</div>
+          <div style="font-family:var(--mono); font-size:12px; color:var(--text3);">https://blue-cake-9a3b.y-furuya0109.workers.dev</div>
+        </div>
+        <div class="settings-row">
+          <button class="btn-secondary" onclick="testConnection()">接続テスト</button>
+          <div id="testResult" style="font-size:13px; margin-left:16px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<div id="toast"></div>
+
+<script>
+// ===== 設定 =====
+const WORKERS_URL = 'https://blue-cake-9a3b.y-furuya0109.workers.dev';
+const DB_IDS = {
+  accounts: '353e165e5f8a805993dbe53adb999fe2',
+  balances: '353e165e5f8a80268d64ebca79db2f2a',
+  settings: '353e165e5f8a80d49eade18b52d1884d'
+};
+
+// ===== 状態管理 =====
+let currentMonth = getCurrentMonth();
+let dashboardMonth = getCurrentMonth();
+let accounts = [];
+let allBalances = {};
+let targetAmount = 30000000;
+let notionToken = localStorage.getItem('notion_token') || '';
+
+function getCurrentMonth() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// ===== Notion API =====
+async function notionFetch(path, method = 'GET', body = null) {
+  if (!notionToken) throw new Error('APIトークンが設定されていません');
+  const opts = {
+    method,
+    headers: {
+      'Authorization': `Bearer ${notionToken}`,
+      'Content-Type': 'application/json'
+    }
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(`${WORKERS_URL}/notion${path}`, opts);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || 'APIエラー');
+  return data;
+}
+
+async function queryDB(dbId, filter = null) {
+  const body = { page_size: 100 };
+  if (filter) body.filter = filter;
+  let all = [];
+  let cursor = null;
+  while (true) {
+    if (cursor) body.start_cursor = cursor;
+    const data = await notionFetch(`/databases/${dbId}/query`, 'POST', body);
+    all = all.concat(data.results);
+    if (!data.has_more) break;
+    cursor = data.next_cursor;
+  }
+  return all;
+}
+
+// ===== データ読み込み =====
+async function loadAll() {
+  if (!notionToken) {
+    setNavStatus('トークン未設定', false);
+    renderDashboardEmpty();
+    return;
+  }
+  try {
+    setNavStatus('読み込み中...', null);
+    const [accs, bals, sets] = await Promise.all([
+      queryDB(DB_IDS.accounts),
+      queryDB(DB_IDS.balances),
+      queryDB(DB_IDS.settings)
+    ]);
+
+    // 口座マスタ
+    accounts = accs
+      .filter(p => p.properties['有効']?.checkbox)
+      .map(p => ({
+        id: p.id,
+        name: p.properties['名前']?.title?.[0]?.plain_text || '',
+        owner: p.properties['オーナー']?.select?.name || '',
+        type: p.properties['資産種別']?.select?.name || '',
+        order: p.properties['表示順']?.number || 99
+      }))
+      .sort((a, b) => a.order - b.order);
+
+    // 目標金額
+    const targetPage = sets.find(p => p.properties['名前']?.title?.[0]?.plain_text === 'target_amount');
+    if (targetPage) targetAmount = targetPage.properties['値']?.number || 30000000;
+
+    // 月次残高
+    allBalances = {};
+    bals.forEach(p => {
+      const ym = p.properties['年月']?.rich_text?.[0]?.plain_text || '';
+      const name = p.properties['口座名']?.rich_text?.[0]?.plain_text || '';
+      const amount = p.properties['残高']?.number || 0;
+      const pageId = p.id;
+      if (!allBalances[ym]) allBalances[ym] = {};
+      allBalances[ym][name] = { amount, pageId };
+    });
+
+    setNavStatus('接続済み', true);
+    renderDashboard();
+    renderInputForm();
+  } catch (e) {
+    setNavStatus('接続エラー', false);
+    showToast('データ読み込みエラー: ' + e.message, 'error');
+    renderDashboardEmpty();
+  }
+}
+
+// ===== ダッシュボード描画 =====
+function renderDashboard() {
+  // dashboardMonth が存在するデータの中にあるか確認
+  const availableMonths = Object.keys(allBalances).sort();
+  if (availableMonths.length > 0 && !allBalances[dashboardMonth]) {
+    dashboardMonth = availableMonths[availableMonths.length - 1];
+  }
+  document.getElementById('dashMonthLabel').textContent = dashboardMonth;
+
+  const monthBalances = allBalances[dashboardMonth] || {};
+  let total = 0, yuiTotal = 0, yokoTotal = 0;
+
+  accounts.forEach(acc => {
+    const amt = monthBalances[acc.name]?.amount || 0;
+    total += amt;
+    if (acc.owner === 'Yuichiro') yuiTotal += amt;
+    else if (acc.owner === 'Yoko') yokoTotal += amt;
+  });
+
+  const rate = targetAmount > 0 ? Math.min((total / targetAmount) * 100, 100) : 0;
+  const diff = total - targetAmount;
+  const diffStr = (diff >= 0 ? '+' : '') + fmtYen(diff);
+  const badgeClass = diff >= 0 ? 'badge-green' : rate >= 80 ? 'badge-yellow' : 'badge-red';
+
+  // グラフデータ（グラフは全月表示のまま）
+  const months = availableMonths;
+  const chartData = months.map(ym => {
+    const mb = allBalances[ym];
+    return Object.values(mb).reduce((s, v) => s + v.amount, 0);
+  });
+
+  const html = `
+    <div class="dashboard-grid">
+      <div class="card">
+        <div class="card-title">総資産（${dashboardMonth}）</div>
+        <div class="metric-value">${fmtYen(total)}</div>
+        <div class="metric-badge ${badgeClass}">${diffStr}</div>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width:${rate}%"></div>
+        </div>
+        <div class="metric-sub">目標 ${fmtYen(targetAmount)} の ${rate.toFixed(1)}%</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">オーナー別内訳</div>
+        <div class="owner-row">
+          <div class="owner-name"><span class="owner-dot dot-yuichiro"></span>Yuichiro</div>
+          <div class="owner-amount">${fmtYen(yuiTotal)}</div>
+        </div>
+        <div class="owner-row">
+          <div class="owner-name"><span class="owner-dot dot-yoko"></span>Yoko</div>
+          <div class="owner-amount">${fmtYen(yokoTotal)}</div>
+        </div>
+        <div class="owner-row" style="margin-top:8px; border-top:1px solid var(--border); padding-top:12px;">
+          <div class="owner-name" style="color:var(--text); font-weight:600;">合計</div>
+          <div class="owner-amount" style="color:var(--accent);">${fmtYen(total)}</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">資産種別内訳</div>
+        ${renderTypeSummary(monthBalances)}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">総資産推移</div>
+      <div class="chart-container">
+        <canvas id="trendChart"></canvas>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('dashboardContent').innerHTML = html;
+
+  // グラフ描画
+  if (months.length > 0) {
+    const ctx = document.getElementById('trendChart').getContext('2d');
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: months,
+        datasets: [{
+          label: '総資産',
+          data: chartData,
+          borderColor: '#4f8ef7',
+          backgroundColor: 'rgba(79,142,247,0.08)',
+          borderWidth: 2,
+          pointBackgroundColor: '#4f8ef7',
+          pointRadius: 4,
+          fill: true,
+          tension: 0.3
+        }, {
+          label: '目標',
+          data: months.map(() => targetAmount),
+          borderColor: 'rgba(251,191,36,0.5)',
+          borderDash: [6, 4],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          fill: false
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: '#8b92b8', font: { size: 12 } } },
+          tooltip: {
+            callbacks: {
+              label: ctx => ' ' + fmtYen(ctx.raw)
+            }
+          }
+        },
+        scales: {
+          x: { ticks: { color: '#5a6190' }, grid: { color: 'rgba(46,50,80,0.5)' } },
+          y: {
+            ticks: {
+              color: '#5a6190',
+              callback: v => fmtYenShort(v)
+            },
+            grid: { color: 'rgba(46,50,80,0.5)' }
+          }
+        }
+      }
+    });
+  }
+}
+
+function renderTypeSummary(monthBalances) {
+  const types = {};
+  accounts.forEach(acc => {
+    const amt = monthBalances[acc.name]?.amount || 0;
+    if (!types[acc.type]) types[acc.type] = 0;
+    types[acc.type] += amt;
+  });
+  return Object.entries(types)
+    .sort((a, b) => b[1] - a[1])
+    .map(([t, v]) => `
+      <div class="owner-row">
+        <div class="owner-name">${t}</div>
+        <div class="owner-amount">${fmtYen(v)}</div>
+      </div>
+    `).join('');
+}
+
+function renderDashboardEmpty() {
+  document.getElementById('dashboardContent').innerHTML = `
+    <div class="card" style="text-align:center; padding:60px;">
+      <div style="font-size:40px; margin-bottom:16px;">🔑</div>
+      <div style="color:var(--text2); margin-bottom:20px;">設定画面でNotion APIトークンを入力してください</div>
+      <button class="btn-primary" onclick="showPage('settings', this)">設定画面へ</button>
+    </div>
+  `;
+}
+
+// ===== 月次入力フォーム =====
+function renderInputForm() {
+  document.getElementById('currentMonthLabel').textContent = currentMonth;
+  const monthBalances = allBalances[currentMonth] || {};
+
+  const yuiAccs = accounts.filter(a => a.owner === 'Yuichiro');
+  const yokoAccs = accounts.filter(a => a.owner === 'Yoko');
+
+  const renderSection = (owner, accs, dotClass) => `
+    <div class="owner-section">
+      <div class="owner-label">
+        <span class="owner-dot ${dotClass}"></span>${owner}
+      </div>
+      ${accs.map(acc => {
+        const prev = monthBalances[acc.name]?.amount || '';
+        return `
+          <div class="input-row">
+            <div class="input-name">${acc.name}</div>
+            <div class="input-type">${acc.type}</div>
+            <input type="text" inputmode="numeric" class="amount-input"
+              data-name="${acc.name}"
+              data-raw="${prev}"
+              value="${prev ? Number(prev).toLocaleString('ja-JP') : ''}" 
+              placeholder="0"
+              oninput="onAmountInput(this)"
+              onfocus="onAmountFocus(this)"
+              onblur="onAmountBlur(this)"
+              onkeydown="onAmountKeydown(event, this)">
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  document.getElementById('inputContent').innerHTML =
+    renderSection('Yuichiro', yuiAccs, 'dot-yuichiro') +
+    renderSection('Yoko', yokoAccs, 'dot-yoko');
+
+  updateTotal();
+}
+
+function updateTotal() {
+  const inputs = document.querySelectorAll('.amount-input');
+  let total = 0;
+  inputs.forEach(inp => { total += Number(inp.dataset.raw) || 0; });
+  document.getElementById('inputTotal').textContent = fmtYen(total);
+}
+
+function onAmountInput(el) {
+  const raw = el.value.replace(/[^0-9]/g, '');
+  el.dataset.raw = raw;
+  const sel = el.selectionStart;
+  el.value = raw ? Number(raw).toLocaleString('ja-JP') : '';
+  updateTotal();
+}
+
+function onAmountFocus(el) {
+  const raw = el.dataset.raw || '';
+  el.value = raw;
+  setTimeout(() => el.select(), 0);
+}
+
+function onAmountBlur(el) {
+  const raw = el.dataset.raw || '';
+  el.value = raw ? Number(raw).toLocaleString('ja-JP') : '';
+}
+
+function onAmountKeydown(e, el) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const inputs = Array.from(document.querySelectorAll('.amount-input'));
+    const idx = inputs.indexOf(el);
+    if (idx < inputs.length - 1) {
+      inputs[idx + 1].focus();
+    } else {
+      document.getElementById('saveBtn').focus();
+    }
+  }
+}
+
+function changeMonth(delta) {
+  const [y, m] = currentMonth.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  currentMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  renderInputForm();
+}
+
+function changeDashMonth(delta) {
+  const available = Object.keys(allBalances).sort();
+  if (available.length === 0) return;
+  const idx = available.indexOf(dashboardMonth);
+  const newIdx = idx + delta;
+  if (newIdx < 0 || newIdx >= available.length) {
+    showToast(delta < 0 ? '最も古いデータです' : '最新のデータです', 'info');
+    return;
+  }
+  dashboardMonth = available[newIdx];
+  renderDashboard();
+}
+
+// ===== 保存処理 =====
+async function saveBalances() {
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true;
+
+  const inputs = document.querySelectorAll('.amount-input');
+  const entries = [];
+  inputs.forEach(inp => {
+    if (inp.dataset.raw && inp.dataset.raw !== '') {
+      entries.push({ name: inp.dataset.name, amount: Number(inp.dataset.raw) });
+    }
+  });
+
+  if (entries.length === 0) {
+    showToast('入力がありません', 'error');
+    btn.disabled = false;
+    return;
+  }
+
+  showToast(`${entries.length}件を保存中...`, 'info');
+
+  const monthBalances = allBalances[currentMonth] || {};
+  let ok = 0, ng = 0;
+
+  for (let i = 0; i < entries.length; i++) {
+    const { name, amount } = entries[i];
+    try {
+      const existing = monthBalances[name];
+      if (existing?.pageId) {
+        // 更新
+        await notionFetch(`/pages/${existing.pageId}`, 'PATCH', {
+          properties: { '残高': { number: amount } }
+        });
+      } else {
+        // 新規作成
+        await notionFetch('/pages', 'POST', {
+          parent: { database_id: DB_IDS.balances },
+          properties: {
+            '名前': { title: [{ text: { content: `${currentMonth}_${name}` } }] },
+            '年月': { rich_text: [{ text: { content: currentMonth } }] },
+            '口座名': { rich_text: [{ text: { content: name } }] },
+            '残高': { number: amount }
+          }
+        });
+      }
+      ok++;
+    } catch (e) {
+      ng++;
+    }
+    // レート制限対策：300ms待機
+    if (i < entries.length - 1) await sleep(300);
+  }
+
+  btn.disabled = false;
+  if (ng === 0) {
+    showToast(`✅ ${ok}件の残高を保存しました！`, 'success');
+    await loadAll();
+  } else {
+    showToast(`⚠️ ${ok}件成功、${ng}件失敗`, 'error');
+  }
+}
+
+// ===== 設定 =====
+function saveToken() {
+  const val = document.getElementById('tokenInput').value.trim();
+  if (!val.startsWith('secret_') && !val.startsWith('ntn_')) {
+    showToast('トークンは ntn_ または secret_ で始まる必要があります', 'error');
+    return;
+  }
+  notionToken = val;
+  localStorage.setItem('notion_token', val);
+  document.getElementById('tokenInput').value = '';
+  updateTokenDisplay();
+  showToast('トークンを保存しました', 'success');
+  loadAll();
+}
+
+function updateTokenDisplay() {
+  const el = document.getElementById('currentToken');
+  if (notionToken) {
+    el.textContent = notionToken.slice(0, 12) + '••••••••••••••••••••';
+  } else {
+    el.textContent = '未設定';
+  }
+}
+
+async function saveTarget() {
+  const val = Number(document.getElementById('targetInput').value);
+  if (!val) { showToast('金額を入力してください', 'error'); return; }
+  try {
+    const sets = await queryDB(DB_IDS.settings);
+    const page = sets.find(p => p.properties['名前']?.title?.[0]?.plain_text === 'target_amount');
+    if (page) {
+      await notionFetch(`/pages/${page.id}`, 'PATCH', {
+        properties: { '値': { number: val } }
+      });
+    }
+    targetAmount = val;
+    showToast('目標金額を更新しました', 'success');
+    renderDashboard();
+  } catch (e) {
+    showToast('更新エラー: ' + e.message, 'error');
+  }
+}
+
+async function testConnection() {
+  const el = document.getElementById('testResult');
+  el.textContent = 'テスト中...';
+  el.style.color = 'var(--text2)';
+  try {
+    await queryDB(DB_IDS.settings);
+    el.textContent = '✅ 接続成功！';
+    el.style.color = 'var(--green)';
+  } catch (e) {
+    el.textContent = '❌ 接続失敗: ' + e.message;
+    el.style.color = 'var(--red)';
+  }
+}
+
+// ===== UI ユーティリティ =====
+function showPage(name, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.bottom-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(`page-${name}`).classList.add('active');
+  // PC nav
+  const pcTab = document.querySelector(`.nav-tab[onclick*="${name}"]`);
+  if (pcTab) pcTab.classList.add('active');
+  // スマホ bottom tab
+  if (el) el.classList.add('active');
+
+  if (name === 'input') renderInputForm();
+  if (name === 'settings') {
+    updateTokenDisplay();
+    document.getElementById('targetInput').value = targetAmount;
+  }
+}
+
+function setNavStatus(text, ok) {
+  const el = document.getElementById('navStatus');
+  el.textContent = ok === null ? text : (ok ? '● ' + text : '● ' + text);
+  el.className = 'nav-status' + (ok === true ? ' ok' : ok === false ? ' err' : '');
+  // モバイルステータス
+  const mob = document.getElementById('mobileStatus');
+  if (mob) {
+    mob.textContent = ok === true ? '● 接続済み' : ok === false ? '● 接続エラー' : '● 読み込み中...';
+    mob.className = ok === true ? 'ok' : ok === false ? 'err' : '';
+  }
+}
+
+function showToast(msg, type = 'info') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show ${type}`;
+  setTimeout(() => el.className = type, 3000);
+}
+
+function fmtYen(n) {
+  return '¥' + Math.abs(Math.round(n)).toLocaleString('ja-JP') * (n < 0 ? -1 : 1);
+}
+
+function fmtYen(n) {
+  const sign = n < 0 ? '-' : '';
+  return sign + '¥' + Math.abs(Math.round(n)).toLocaleString('ja-JP');
+}
+
+function fmtYenShort(n) {
+  if (Math.abs(n) >= 1e8) return (n / 1e8).toFixed(1) + '億';
+  if (Math.abs(n) >= 1e4) return (n / 1e4).toFixed(0) + '万';
+  return n.toString();
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ===== 初期化 =====
+window.addEventListener('load', () => {
+  updateTokenDisplay();
+  loadAll();
+});
+</script>
+</body>
+</html>
