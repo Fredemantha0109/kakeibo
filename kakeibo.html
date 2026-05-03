@@ -122,7 +122,8 @@
     background: var(--surface);
     border-top: 1px solid var(--border);
     z-index: 200;
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: env(safe-area-inset-bottom, 8px);
+    box-shadow: 0 -2px 12px rgba(0,0,0,0.3);
   }
 
   .bottom-tab {
@@ -559,6 +560,7 @@
   <div class="nav-tabs">
     <button class="nav-tab active" onclick="showPage('dashboard', this)">📊 ダッシュボード</button>
     <button class="nav-tab" onclick="showPage('input', this)">✏️ 月次入力</button>
+    <button class="nav-tab" onclick="showPage('bulk', this)">📅 過去一括入力</button>
     <button class="nav-tab" onclick="showPage('settings', this)">⚙️ 設定</button>
   </div>
   <div class="nav-status" id="navStatus">読み込み中...</div>
@@ -570,6 +572,9 @@
   </button>
   <button class="bottom-tab" onclick="showPage('input', this)">
     <span class="tab-icon">✏️</span>月次入力
+  </button>
+  <button class="bottom-tab" onclick="showPage('bulk', this)">
+    <span class="tab-icon">📅</span>過去入力
   </button>
   <button class="bottom-tab" onclick="showPage('settings', this)">
     <span class="tab-icon">⚙️</span>設定
@@ -609,6 +614,29 @@
       <div class="save-area">
         <div class="total-preview">入力合計: <span id="inputTotal">¥0</span></div>
         <button class="btn-primary" id="saveBtn" onclick="saveBalances()">保存する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 過去一括入力 -->
+  <div id="page-bulk" class="page">
+    <div class="input-header" style="margin-bottom:16px;">
+      <div>
+        <div class="month-display" id="bulkMonthLabel">2026-04</div>
+        <div style="font-size:12px; color:var(--text3); margin-top:4px;">過去月のデータを入力</div>
+      </div>
+      <div class="month-nav">
+        <button class="month-btn" onclick="changeBulkMonth(-1)">← 前月</button>
+        <button class="month-btn" onclick="changeBulkMonth(1)">次月 →</button>
+      </div>
+    </div>
+    <div class="card">
+      <div id="bulkContent">
+        <div class="loading"><div class="spinner"></div>読み込み中...</div>
+      </div>
+      <div class="save-area">
+        <div class="total-preview">入力合計: <span id="bulkTotal">¥0</span></div>
+        <button class="btn-primary" id="bulkSaveBtn" onclick="saveBulkBalances()">この月を保存</button>
       </div>
     </div>
   </div>
@@ -658,6 +686,133 @@
 <div id="toast"></div>
 
 <script>
+// ===== 過去一括入力 =====
+let bulkMonth = (() => {
+  const now = new Date();
+  now.setMonth(now.getMonth() - 1);
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+})();
+
+function renderBulkForm() {
+  document.getElementById('bulkMonthLabel').textContent = bulkMonth;
+  const monthBalances = allBalances[bulkMonth] || {};
+
+  const yuiAccs = accounts.filter(a => a.owner === 'Yuichiro');
+  const yokoAccs = accounts.filter(a => a.owner === 'Yoko');
+
+  const renderSection = (owner, accs, dotClass) => `
+    <div class="owner-section">
+      <div class="owner-label">
+        <span class="owner-dot ${dotClass}"></span>${owner}
+      </div>
+      ${accs.map(acc => {
+        const prev = monthBalances[acc.name]?.amount || '';
+        return `
+          <div class="input-row">
+            <div class="input-name">${acc.name}</div>
+            <div class="input-type">${acc.type}</div>
+            <input type="text" inputmode="numeric" class="bulk-input amount-input"
+              data-name="${acc.name}"
+              data-raw="${prev}"
+              value="${prev ? Number(prev).toLocaleString('ja-JP') : ''}"
+              placeholder="0"
+              oninput="onAmountInput(this); updateBulkTotal()"
+              onfocus="onAmountFocus(this)"
+              onblur="onAmountBlur(this)"
+              onkeydown="onBulkKeydown(event, this)">
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  document.getElementById('bulkContent').innerHTML =
+    renderSection('Yuichiro', yuiAccs, 'dot-yuichiro') +
+    renderSection('Yoko', yokoAccs, 'dot-yoko');
+
+  updateBulkTotal();
+}
+
+function updateBulkTotal() {
+  const inputs = document.querySelectorAll('.bulk-input');
+  let total = 0;
+  inputs.forEach(inp => { total += Number(inp.dataset.raw) || 0; });
+  document.getElementById('bulkTotal').textContent = fmtYen(total);
+}
+
+function changeBulkMonth(delta) {
+  const [y, m] = bulkMonth.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  bulkMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  renderBulkForm();
+}
+
+function onBulkKeydown(e, el) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const inputs = Array.from(document.querySelectorAll('.bulk-input'));
+    const idx = inputs.indexOf(el);
+    if (idx < inputs.length - 1) inputs[idx + 1].focus();
+    else document.getElementById('bulkSaveBtn').focus();
+  }
+}
+
+async function saveBulkBalances() {
+  const btn = document.getElementById('bulkSaveBtn');
+  btn.disabled = true;
+
+  const inputs = document.querySelectorAll('.bulk-input');
+  const entries = [];
+  inputs.forEach(inp => {
+    if (inp.dataset.raw && inp.dataset.raw !== '') {
+      entries.push({ name: inp.dataset.name, amount: Number(inp.dataset.raw) });
+    }
+  });
+
+  if (entries.length === 0) {
+    showToast('入力がありません', 'error');
+    btn.disabled = false;
+    return;
+  }
+
+  showToast(`${bulkMonth}の${entries.length}件を保存中...`, 'info');
+  const monthBalances = allBalances[bulkMonth] || {};
+  let ok = 0, ng = 0;
+
+  for (let i = 0; i < entries.length; i++) {
+    const { name, amount } = entries[i];
+    try {
+      const existing = monthBalances[name];
+      if (existing?.pageId) {
+        await notionFetch(`/pages/${existing.pageId}`, 'PATCH', {
+          properties: { '残高': { number: amount } }
+        });
+      } else {
+        await notionFetch('/pages', 'POST', {
+          parent: { database_id: DB_IDS.balances },
+          properties: {
+            '名前': { title: [{ text: { content: `${bulkMonth}_${name}` } }] },
+            '年月': { rich_text: [{ text: { content: bulkMonth } }] },
+            '口座名': { rich_text: [{ text: { content: name } }] },
+            '残高': { number: amount }
+          }
+        });
+      }
+      ok++;
+    } catch(e) { ng++; }
+    if (i < entries.length - 1) await sleep(300);
+  }
+
+  btn.disabled = false;
+  if (ng === 0) {
+    showToast(`✅ ${bulkMonth}の${ok}件を保存しました！`, 'success');
+    await loadAll();
+    renderBulkForm();
+  } else {
+    showToast(`⚠️ ${ok}件成功、${ng}件失敗`, 'error');
+  }
+}
+
 // ===== 設定 =====
 const WORKERS_URL = 'https://blue-cake-9a3b.y-furuya0109.workers.dev';
 const DB_IDS = {
@@ -672,7 +827,17 @@ let dashboardMonth = getCurrentMonth();
 let accounts = [];
 let allBalances = {};
 let targetAmount = 30000000;
-let notionToken = localStorage.getItem('notion_token') || '';
+// トークン取得（localStorage → sessionStorage の順で試みる）
+function getStoredToken() {
+  try { return localStorage.getItem('notion_token') || ''; } catch(e) {}
+  try { return sessionStorage.getItem('notion_token') || ''; } catch(e) {}
+  return '';
+}
+function storeToken(val) {
+  try { localStorage.setItem('notion_token', val); return; } catch(e) {}
+  try { sessionStorage.setItem('notion_token', val); } catch(e) {}
+}
+let notionToken = getStoredToken();
 
 function getCurrentMonth() {
   const now = new Date();
@@ -1088,7 +1253,7 @@ function saveToken() {
     return;
   }
   notionToken = val;
-  localStorage.setItem('notion_token', val);
+  storeToken(val);
   document.getElementById('tokenInput').value = '';
   updateTokenDisplay();
   showToast('トークンを保存しました', 'success');
@@ -1150,6 +1315,7 @@ function showPage(name, el) {
   if (el) el.classList.add('active');
 
   if (name === 'input') renderInputForm();
+  if (name === 'bulk') renderBulkForm();
   if (name === 'settings') {
     updateTokenDisplay();
     document.getElementById('targetInput').value = targetAmount;
@@ -1194,6 +1360,15 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ===== 初期化 =====
 window.addEventListener('load', () => {
+  // スマホ判定してボトムナビ表示
+  function checkMobile() {
+    const isMobile = window.innerWidth <= 600;
+    document.getElementById('bottomNav').style.display = isMobile ? 'flex' : 'none';
+    document.querySelector('nav').style.display = isMobile ? 'none' : 'flex';
+  }
+  checkMobile();
+  window.addEventListener('resize', checkMobile);
+
   updateTokenDisplay();
   loadAll();
 });
