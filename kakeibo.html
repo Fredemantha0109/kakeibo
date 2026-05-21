@@ -1056,11 +1056,15 @@ function renderDashboard() {
             position: 'left',
             min: chartMin,
             max: chartMax,
+            afterBuildTicks: axis => {
+              axis.ticks = [];
+              for (let v = chartMin; v <= chartMax; v += 2000000) {
+                axis.ticks.push({ value: v });
+              }
+            },
             ticks: {
               color: '#5a6190',
-              callback: v => fmtYenShort(v),
-              stepSize: 2000000,
-              maxTicksLimit: 8
+              callback: v => fmtYenShort(v)
             },
             grid: { color: 'rgba(46,50,80,0.5)' }
           },
@@ -1068,11 +1072,15 @@ function renderDashboard() {
             position: 'right',
             min: chartMin,
             max: chartMax,
+            afterBuildTicks: axis => {
+              axis.ticks = [];
+              for (let v = chartMin; v <= chartMax; v += 2000000) {
+                axis.ticks.push({ value: v });
+              }
+            },
             ticks: {
               color: '#5a6190',
-              callback: v => fmtYenShort(v),
-              stepSize: 2000000,
-              maxTicksLimit: 8
+              callback: v => fmtYenShort(v)
             },
             grid: { display: false }
           }
