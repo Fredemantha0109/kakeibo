@@ -959,6 +959,13 @@ function renderDashboard() {
     return Object.values(mb).reduce((s, v) => s + v.amount, 0);
   });
 
+  // グラフの表示範囲を計算（最小値-10%〜目標+5%、ただし目標の90%以上は省略）
+  const dataMin = Math.min(...chartData);
+  const dataMax = Math.max(...chartData);
+  const padding = (dataMax - dataMin) * 0.1;
+  const chartMin = Math.max(0, Math.floor((dataMin - padding) / 1000000) * 1000000);
+  const chartMax = Math.ceil((Math.max(dataMax, targetAmount) + padding) / 1000000) * 1000000;
+
   const html = `
     <div class="dashboard-grid">
       <div class="card">
@@ -1019,7 +1026,8 @@ function renderDashboard() {
           pointBackgroundColor: '#4f8ef7',
           pointRadius: 4,
           fill: true,
-          tension: 0.3
+          tension: 0.3,
+          yAxisID: 'y'
         }, {
           label: '目標',
           data: months.map(() => targetAmount),
@@ -1027,7 +1035,8 @@ function renderDashboard() {
           borderDash: [6, 4],
           borderWidth: 1.5,
           pointRadius: 0,
-          fill: false
+          fill: false,
+          yAxisID: 'y'
         }]
       },
       options: {
@@ -1044,11 +1053,26 @@ function renderDashboard() {
         scales: {
           x: { ticks: { color: '#5a6190' }, grid: { color: 'rgba(46,50,80,0.5)' } },
           y: {
+            position: 'left',
+            min: chartMin,
+            max: chartMax,
             ticks: {
               color: '#5a6190',
-              callback: v => fmtYenShort(v)
+              callback: v => fmtYenShort(v),
+              stepSize: 2000000
             },
             grid: { color: 'rgba(46,50,80,0.5)' }
+          },
+          y2: {
+            position: 'right',
+            min: chartMin,
+            max: chartMax,
+            ticks: {
+              color: '#5a6190',
+              callback: v => fmtYenShort(v),
+              stepSize: 2000000
+            },
+            grid: { display: false }
           }
         }
       }
