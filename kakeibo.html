@@ -963,8 +963,8 @@ function renderDashboard() {
   const dataMin = Math.min(...chartData);
   const dataMax = Math.max(...chartData);
   const padding = (dataMax - dataMin) * 0.1;
-  const chartMin = Math.max(0, Math.floor((dataMin - padding) / 1000000) * 1000000);
-  const chartMax = Math.ceil((Math.max(dataMax, targetAmount) + padding) / 1000000) * 1000000;
+  const chartMin = Math.max(0, Math.floor((dataMin - padding) / 2000000) * 2000000);
+  const chartMax = Math.ceil((Math.max(dataMax, targetAmount) + padding) / 2000000) * 2000000;
 
   const html = `
     <div class="dashboard-grid">
@@ -1059,7 +1059,8 @@ function renderDashboard() {
             ticks: {
               color: '#5a6190',
               callback: v => fmtYenShort(v),
-              stepSize: 2000000
+              stepSize: 2000000,
+              maxTicksLimit: 8
             },
             grid: { color: 'rgba(46,50,80,0.5)' }
           },
@@ -1070,7 +1071,8 @@ function renderDashboard() {
             ticks: {
               color: '#5a6190',
               callback: v => fmtYenShort(v),
-              stepSize: 2000000
+              stepSize: 2000000,
+              maxTicksLimit: 8
             },
             grid: { display: false }
           }
