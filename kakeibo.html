@@ -223,6 +223,17 @@
   .badge-red { background: rgba(248,113,113,0.15); color: var(--red); }
   .badge-yellow { background: rgba(251,191,36,0.15); color: var(--yellow); }
 
+  .delta {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--mono);
+    letter-spacing: 0.02em;
+  }
+  .delta-up   { color: var(--green); }
+  .delta-down { color: var(--red); }
+  .delta-flat { color: var(--text2); font-weight: 500; }
+
   .progress-bar {
     height: 6px;
     background: var(--surface2);
@@ -999,6 +1010,27 @@ function sumActiveAccounts(monthBalances) {
   return accounts.reduce((s, acc) => s + (monthBalances[acc.name]?.amount || 0), 0);
 }
 
+// "2026-05" → "2026-04"（年またぎも正しく処理）
+function getPrevMonth(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  if (!y || !m) return '';
+  const d = m === 1 ? { y: y - 1, m: 12 } : { y, m: m - 1 };
+  return `${d.y}-${String(d.m).padStart(2, '0')}`;
+}
+
+// 前月比バッジのHTMLを返す。前月データが無い場合は「前月データなし」表示。
+// hasPrev は「前月のレコードが存在するか」。存在しないのに +100% と出さないための判定。
+function renderDelta(cur, prev, hasPrev) {
+  if (!hasPrev) return '<span class="delta delta-flat">前月データなし</span>';
+  const diff = cur - prev;
+  const sign = diff > 0 ? '+' : '';
+  const cls = diff > 0 ? 'delta-up' : diff < 0 ? 'delta-down' : 'delta-flat';
+  // 前月が0のときは率を出さない（0除算・無限大の回避）
+  const pct = prev !== 0 ? ` (${sign}${((diff / Math.abs(prev)) * 100).toFixed(1)}%)` : '';
+  const arrow = diff > 0 ? '▲' : diff < 0 ? '▼' : '±';
+  return `<span class="delta ${cls}">${arrow} ${sign}${fmtYen(diff)}${pct}</span>`;
+}
+
 function renderDashboard() {
   // dashboardMonth が存在するデータの中にあるか確認
   const availableMonths = Object.keys(allBalances).sort();
@@ -1008,13 +1040,23 @@ function renderDashboard() {
   document.getElementById('dashMonthLabel').textContent = dashboardMonth;
 
   const monthBalances = allBalances[dashboardMonth] || {};
+  const prevMonth = getPrevMonth(dashboardMonth);
+  const hasPrev = !!allBalances[prevMonth];
+  const prevBalances = allBalances[prevMonth] || {};
+
   let total = 0, yuiTotal = 0, yokoTotal = 0;
+  let prevTotal = 0, prevYuiTotal = 0, prevYokoTotal = 0;
 
   accounts.forEach(acc => {
     const amt = monthBalances[acc.name]?.amount || 0;
     total += amt;
     if (acc.owner === 'Yuichiro') yuiTotal += amt;
     else if (acc.owner === 'Yoko') yokoTotal += amt;
+
+    const prevAmt = prevBalances[acc.name]?.amount || 0;
+    prevTotal += prevAmt;
+    if (acc.owner === 'Yuichiro') prevYuiTotal += prevAmt;
+    else if (acc.owner === 'Yoko') prevYokoTotal += prevAmt;
   });
 
   const rate = targetAmount > 0 ? Math.min((total / targetAmount) * 100, 100) : 0;
@@ -1053,27 +1095,37 @@ function renderDashboard() {
           <div class="progress-fill" style="width:${rate}%"></div>
         </div>
         <div class="metric-sub">目標 ${fmtYen(targetAmount)} の ${rate.toFixed(1)}%</div>
+        <div class="metric-sub">前月比 (${prevMonth}) ${renderDelta(total, prevTotal, hasPrev)}</div>
       </div>
 
       <div class="card">
         <div class="card-title">オーナー別内訳</div>
         <div class="owner-row">
           <div class="owner-name"><span class="owner-dot dot-yuichiro"></span>Yuichiro</div>
-          <div class="owner-amount">${fmtYen(yuiTotal)}</div>
+          <div style="text-align:right;">
+            <div class="owner-amount">${fmtYen(yuiTotal)}</div>
+            <div>${renderDelta(yuiTotal, prevYuiTotal, hasPrev)}</div>
+          </div>
         </div>
         <div class="owner-row">
           <div class="owner-name"><span class="owner-dot dot-yoko"></span>Yoko</div>
-          <div class="owner-amount">${fmtYen(yokoTotal)}</div>
+          <div style="text-align:right;">
+            <div class="owner-amount">${fmtYen(yokoTotal)}</div>
+            <div>${renderDelta(yokoTotal, prevYokoTotal, hasPrev)}</div>
+          </div>
         </div>
         <div class="owner-row" style="margin-top:8px; border-top:1px solid var(--border); padding-top:12px;">
           <div class="owner-name" style="color:var(--text); font-weight:600;">合計</div>
-          <div class="owner-amount" style="color:var(--accent);">${fmtYen(total)}</div>
+          <div style="text-align:right;">
+            <div class="owner-amount" style="color:var(--accent);">${fmtYen(total)}</div>
+            <div>${renderDelta(total, prevTotal, hasPrev)}</div>
+          </div>
         </div>
       </div>
 
       <div class="card">
         <div class="card-title">資産種別内訳</div>
-        ${renderTypeSummary(monthBalances)}
+        ${renderTypeSummary(monthBalances, prevBalances, hasPrev)}
       </div>
     </div>
 
@@ -1187,19 +1239,27 @@ function renderDashboard() {
   }
 }
 
-function renderTypeSummary(monthBalances) {
+function renderTypeSummary(monthBalances, prevBalances, hasPrev) {
   const types = {};
+  const prevTypes = {};
   accounts.forEach(acc => {
     const amt = monthBalances[acc.name]?.amount || 0;
     if (!types[acc.type]) types[acc.type] = 0;
     types[acc.type] += amt;
+
+    const prevAmt = (prevBalances || {})[acc.name]?.amount || 0;
+    if (!prevTypes[acc.type]) prevTypes[acc.type] = 0;
+    prevTypes[acc.type] += prevAmt;
   });
   return Object.entries(types)
     .sort((a, b) => b[1] - a[1])
     .map(([t, v]) => `
       <div class="owner-row">
         <div class="owner-name">${t}</div>
-        <div class="owner-amount">${fmtYen(v)}</div>
+        <div style="text-align:right;">
+          <div class="owner-amount">${fmtYen(v)}</div>
+          <div>${renderDelta(v, prevTypes[t] || 0, hasPrev)}</div>
+        </div>
       </div>
     `).join('');
 }
