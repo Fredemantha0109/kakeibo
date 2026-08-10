@@ -1010,13 +1010,6 @@ function sumActiveAccounts(monthBalances) {
   return accounts.reduce((s, acc) => s + (monthBalances[acc.name]?.amount || 0), 0);
 }
 
-// "2026-05" → "2026-04"（年またぎも正しく処理）
-function getPrevMonth(ym) {
-  const [y, m] = ym.split('-').map(Number);
-  if (!y || !m) return '';
-  const d = m === 1 ? { y: y - 1, m: 12 } : { y, m: m - 1 };
-  return `${d.y}-${String(d.m).padStart(2, '0')}`;
-}
 
 // 前月比バッジのHTMLを返す。前月データが無い場合は「前月データなし」表示。
 // hasPrev は「前月のレコードが存在するか」。存在しないのに +100% と出さないための判定。
@@ -1040,8 +1033,9 @@ function renderDashboard() {
   document.getElementById('dashMonthLabel').textContent = dashboardMonth;
 
   const monthBalances = allBalances[dashboardMonth] || {};
-  const prevMonth = getPrevMonth(dashboardMonth);
-  const hasPrev = !!allBalances[prevMonth];
+  const idx = availableMonths.indexOf(dashboardMonth);
+  const prevMonth = idx > 0 ? availableMonths[idx - 1] : '';
+  const hasPrev = !!prevMonth && !!allBalances[prevMonth];
   const prevBalances = allBalances[prevMonth] || {};
 
   let total = 0, yuiTotal = 0, yokoTotal = 0;
@@ -1095,7 +1089,7 @@ function renderDashboard() {
           <div class="progress-fill" style="width:${rate}%"></div>
         </div>
         <div class="metric-sub">目標 ${fmtYen(targetAmount)} の ${rate.toFixed(1)}%</div>
-        <div class="metric-sub">前月比 (${prevMonth}) ${renderDelta(total, prevTotal, hasPrev)}</div>
+        <div class="metric-sub">前月比${prevMonth ? ` (${prevMonth})` : ''} ${renderDelta(total, prevTotal, hasPrev)}</div>
       </div>
 
       <div class="card">
