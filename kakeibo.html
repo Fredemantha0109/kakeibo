@@ -234,6 +234,22 @@
   .delta-down { color: var(--red); }
   .delta-flat { color: var(--text2); font-weight: 500; }
 
+  .amount-input.prefilled {
+    color: var(--text2);
+    font-style: italic;
+  }
+  .prefill-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--text2);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+  }
+
   .progress-bar {
     height: 6px;
     background: var(--surface2);
@@ -660,7 +676,7 @@
       </div>
       <div class="error-box" id="inputErrorBox"></div>
       <div class="save-area">
-        <div class="total-preview">入力合計: <span id="inputTotal">¥0</span></div>
+        <div class="total-preview">入力合計: <span id="inputTotal">¥0</span><span id="unconfirmedCount" style="margin-left:12px; font-size:13px; color:var(--text2);"></span></div>
         <button class="btn-primary" id="saveBtn" onclick="saveBalances()">保存する</button>
       </div>
     </div>
@@ -1417,6 +1433,11 @@ function renderInputForm() {
   document.getElementById('currentMonthLabel').textContent = currentMonth;
   const monthBalances = allBalances[currentMonth] || {};
 
+  // プレフィル元の月: currentMonth より前で最も新しい月
+  const sortedMonths = Object.keys(allBalances).sort();
+  const prefillMonth = sortedMonths.filter(ym => ym < currentMonth).pop() || '';
+  const prefillBalances = prefillMonth ? (allBalances[prefillMonth] || {}) : {};
+
   const yuiAccs = accounts.filter(a => a.owner === 'Yuichiro');
   const yokoAccs = accounts.filter(a => a.owner === 'Yoko');
 
@@ -1426,15 +1447,27 @@ function renderInputForm() {
         <span class="owner-dot ${dotClass}"></span>${owner}
       </div>
       ${accs.map(acc => {
-        const prev = monthBalances[acc.name]?.amount || '';
+        const current = monthBalances[acc.name]?.amount;
+        const prefill  = prefillBalances[acc.name]?.amount;
+
+        // 優先順位: 当月レコードあり → 確定値 / 前月レコードあり → プレフィル / どちらも無し → 空
+        const isPrefilled = current == null && prefill != null;
+        const value       = current != null ? current : (prefill != null ? prefill : '');
+        const displayVal  = value !== '' ? Number(value).toLocaleString('ja-JP') : '';
+        const inputClass  = isPrefilled ? 'amount-input prefilled' : 'amount-input';
+        const badge       = isPrefilled
+          ? `<span class="prefill-badge" data-prefill-badge="${acc.name}">${prefillMonth}のまま</span>`
+          : '';
+
         return `
           <div class="input-row">
-            <div class="input-name">${acc.name}</div>
+            <div class="input-name">${acc.name}${badge}</div>
             <div class="input-type">${typeLabel(acc)}</div>
-            <input type="text" inputmode="numeric" class="amount-input"
+            <input type="text" inputmode="numeric" class="${inputClass}"
               data-name="${acc.name}"
-              data-raw="${prev}"
-              value="${prev ? Number(prev).toLocaleString('ja-JP') : ''}" 
+              data-raw="${value}"
+              ${isPrefilled ? 'data-prefilled="1"' : ''}
+              value="${displayVal}"
               placeholder="0"
               oninput="onAmountInput(this)"
               onfocus="onAmountFocus(this)"
@@ -1459,6 +1492,10 @@ function updateTotal() {
   let total = 0;
   inputs.forEach(inp => { total += Number(inp.dataset.raw) || 0; });
   document.getElementById('inputTotal').textContent = fmtYen(total);
+
+  const unconfirmed = document.querySelectorAll('#page-input .amount-input[data-prefilled="1"]').length;
+  const countEl = document.getElementById('unconfirmedCount');
+  if (countEl) countEl.textContent = unconfirmed > 0 ? `未確認 ${unconfirmed}件` : '';
 }
 
 function onAmountInput(el) {
@@ -1466,6 +1503,16 @@ function onAmountInput(el) {
   el.dataset.raw = raw;
   const sel = el.selectionStart;
   el.value = raw ? Number(raw).toLocaleString('ja-JP') : '';
+
+  // 月次入力画面でプレフィル中の欄を触ったら確認済みに戻す
+  if (el.dataset.prefilled && el.closest('#page-input')) {
+    delete el.dataset.prefilled;
+    el.classList.remove('prefilled');
+    const name = el.dataset.name;
+    const badge = document.querySelector(`[data-prefill-badge="${name}"]`);
+    if (badge) badge.remove();
+  }
+
   updateTotal();
 }
 
