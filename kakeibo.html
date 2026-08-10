@@ -774,7 +774,7 @@ function renderBulkForm() {
         return `
           <div class="input-row">
             <div class="input-name">${acc.name}</div>
-            <div class="input-type">${acc.type}</div>
+            <div class="input-type">${typeLabel(acc)}</div>
             <input type="text" inputmode="numeric" class="bulk-input amount-input"
               data-name="${acc.name}"
               data-raw="${prev}"
@@ -899,6 +899,8 @@ let currentMonth = getCurrentMonth();
 let dashboardMonth = getCurrentMonth();
 let accounts = [];
 let allBalances = {};
+let trendChartInstance = null;
+let typeTrendChartInstance = null;
 let targetAmount = 30000000;
 // トークン取得（localStorage → sessionStorage の順で試みる）
 function getStoredToken() {
@@ -1044,13 +1046,16 @@ function hexToRgba(hex, alpha) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+// 資産種別の表示名。Notionのselectが未設定の口座は '未分類' に寄せる。
+function typeLabel(acc) { return acc.type || '未分類'; }
+
 // 全月・全種別の推移データを返す。
 // 戻り値: { months: ['2026-01',...], types: ['預金',...], series: { '預金': [数値,...] } }
 // 有効口座のみ集計（accounts をループ）。種別が空文字なら '未分類' に統一。
 // 種別の並びは最新月の金額の降順（積み上げの下から大きい種別が来るよう）。
 function buildTypeSeries(months) {
   const typeSet = new Set();
-  accounts.forEach(acc => typeSet.add(acc.type || '未分類'));
+  accounts.forEach(acc => typeSet.add(typeLabel(acc)));
   const typeList = [...typeSet];
 
   const series = {};
@@ -1059,7 +1064,7 @@ function buildTypeSeries(months) {
   months.forEach((ym, mi) => {
     const mb = allBalances[ym] || {};
     accounts.forEach(acc => {
-      const t = acc.type || '未分類';
+      const t = typeLabel(acc);
       series[t][mi] += mb[acc.name]?.amount || 0;
     });
   });
@@ -1205,13 +1210,18 @@ function renderDashboard() {
     </div>
   `;
 
+  // 古いcanvasごと差し替わる前に、前回のChartインスタンスを破棄する
+  trendChartInstance?.destroy();
+  trendChartInstance = null;
+  typeTrendChartInstance?.destroy();
+  typeTrendChartInstance = null;
+
   document.getElementById('dashboardContent').innerHTML = html;
 
   // グラフ描画
   if (months.length > 0) {
     const ctx = document.getElementById('trendChart').getContext('2d');
-    Chart.getChart(ctx.canvas)?.destroy();
-    new Chart(ctx, {
+    trendChartInstance = new Chart(ctx, {
       type: 'line',
       data: {
         labels: months,
@@ -1289,15 +1299,13 @@ function renderDashboard() {
     // 資産種別 積み上げエリアグラフ
     const { types, series } = buildTypeSeries(months);
     const typeCtx = document.getElementById('typeTrendChart').getContext('2d');
-    Chart.getChart(typeCtx.canvas)?.destroy();
-
     // y軸の max: 全月の積み上げ合計の最大値を 200万単位で切り上げ
     const stackedMax = Math.max(...months.map((_, mi) =>
       types.reduce((s, t) => s + (series[t][mi] || 0), 0)
     ), 0);
     const typeChartMax = Math.ceil((stackedMax || 1) / 2000000) * 2000000;
 
-    new Chart(typeCtx, {
+    typeTrendChartInstance = new Chart(typeCtx, {
       type: 'line',
       data: {
         labels: months,
@@ -1305,11 +1313,11 @@ function renderDashboard() {
           label: t,
           data: series[t],
           borderColor: typeColor(i),
-          backgroundColor: hexToRgba(typeColor(i), 0.25),
+          backgroundColor: hexToRgba(typeColor(i), 0.35),
           borderWidth: 2,
           pointBackgroundColor: typeColor(i),
           pointRadius: 3,
-          fill: true,
+          fill: i === 0 ? 'origin' : '-1',
           tension: 0.3,
           stack: 'assets',
           yAxisID: 'y'
@@ -1372,13 +1380,14 @@ function renderTypeSummary(monthBalances, prevBalances, hasPrev) {
   const types = {};
   const prevTypes = {};
   accounts.forEach(acc => {
+    const t = typeLabel(acc);
     const amt = monthBalances[acc.name]?.amount || 0;
-    if (!types[acc.type]) types[acc.type] = 0;
-    types[acc.type] += amt;
+    if (!types[t]) types[t] = 0;
+    types[t] += amt;
 
     const prevAmt = (prevBalances || {})[acc.name]?.amount || 0;
-    if (!prevTypes[acc.type]) prevTypes[acc.type] = 0;
-    prevTypes[acc.type] += prevAmt;
+    if (!prevTypes[t]) prevTypes[t] = 0;
+    prevTypes[t] += prevAmt;
   });
   return Object.entries(types)
     .sort((a, b) => b[1] - a[1])
@@ -1421,7 +1430,7 @@ function renderInputForm() {
         return `
           <div class="input-row">
             <div class="input-name">${acc.name}</div>
-            <div class="input-type">${acc.type}</div>
+            <div class="input-type">${typeLabel(acc)}</div>
             <input type="text" inputmode="numeric" class="amount-input"
               data-name="${acc.name}"
               data-raw="${prev}"
