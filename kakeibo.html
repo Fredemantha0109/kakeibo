@@ -408,6 +408,42 @@
     font-weight: 600;
   }
 
+  /* 保存失敗時の再試行ボックス（成功時は非表示） */
+  .error-box {
+    display: none;
+    width: 100%;
+    margin-top: 12px;
+    padding: 12px 14px;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text);
+    text-align: left;
+  }
+
+  .error-box.show { display: block; }
+
+  .error-box .error-title {
+    font-weight: 600;
+    color: #f87171;
+    margin-bottom: 6px;
+  }
+
+  .error-box .error-names {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text2);
+    word-break: break-all;
+    margin-bottom: 10px;
+  }
+
+  .warn-card {
+    border-color: rgba(251, 191, 36, 0.4) !important;
+  }
+
+  .warn-card .card-title { color: #fbbf24; }
+
   .btn-primary {
     padding: 12px 32px;
     background: var(--accent);
@@ -611,6 +647,7 @@
       <div id="inputContent">
         <div class="loading"><div class="spinner"></div>口座データ読み込み中...</div>
       </div>
+      <div class="error-box" id="inputErrorBox"></div>
       <div class="save-area">
         <div class="total-preview">入力合計: <span id="inputTotal">¥0</span></div>
         <button class="btn-primary" id="saveBtn" onclick="saveBalances()">保存する</button>
@@ -634,6 +671,7 @@
       <div id="bulkContent">
         <div class="loading"><div class="spinner"></div>読み込み中...</div>
       </div>
+      <div class="error-box" id="bulkErrorBox"></div>
       <div class="save-area">
         <div class="total-preview">入力合計: <span id="bulkTotal">¥0</span></div>
         <button class="btn-primary" id="bulkSaveBtn" onclick="saveBulkBalances()">この月を保存</button>
@@ -774,7 +812,9 @@ function onBulkKeydown(e, el) {
 
 async function saveBulkBalances() {
   const btn = document.getElementById('bulkSaveBtn');
+  const label = btn.textContent;
   btn.disabled = true;
+  showSaveErrors('bulkErrorBox', bulkMonth, []);
 
   const inputs = document.querySelectorAll('.bulk-input');
   const entries = [];
@@ -790,42 +830,49 @@ async function saveBulkBalances() {
     return;
   }
 
-  showToast(`${bulkMonth}の${entries.length}件を保存中...`, 'info');
-  const monthBalances = allBalances[bulkMonth] || {};
-  let ok = 0, ng = 0;
+  const targetMonth = bulkMonth;
+  showToast(`${targetMonth}の${entries.length}件を保存中...`, 'info');
+  const { ok, failed } = await saveEntries(targetMonth, entries, (done, total) => {
+    btn.textContent = `保存中... (${done}/${total})`;
+  });
 
-  for (let i = 0; i < entries.length; i++) {
-    const { name, amount } = entries[i];
-    try {
-      const existing = monthBalances[name];
-      if (existing?.pageId) {
-        await notionFetch(`/pages/${existing.pageId}`, 'PATCH', {
-          properties: { '残高': { number: amount } }
-        });
-      } else {
-        await notionFetch('/pages', 'POST', {
-          parent: { database_id: DB_IDS.balances },
-          properties: {
-            '名前': { title: [{ text: { content: `${bulkMonth}_${name}` } }] },
-            '年月': { rich_text: [{ text: { content: bulkMonth } }] },
-            '口座名': { rich_text: [{ text: { content: name } }] },
-            '残高': { number: amount }
-          }
-        });
-      }
-      ok++;
-    } catch(e) { ng++; }
-    if (i < entries.length - 1) await sleep(300);
-  }
-
+  btn.textContent = label;
   btn.disabled = false;
-  if (ng === 0) {
-    showToast(`✅ ${bulkMonth}の${ok}件を保存しました！`, 'success');
-    await loadAll();
-    renderBulkForm();
+
+  if (failed.length === 0) {
+    pendingRetry.bulk = null;
+    showToast(`✅ ${targetMonth}の${ok}件を保存しました！`, 'success');
   } else {
-    showToast(`⚠️ ${ok}件成功、${ng}件失敗`, 'error');
+    pendingRetry.bulk = { ym: targetMonth, entries: failed.map(f => ({ name: f.name, amount: f.amount })) };
+    showToast(`⚠️ ${ok}件成功、${failed.length}件失敗`, 'error');
+    showSaveErrors('bulkErrorBox', targetMonth, failed, 'retryBulkSave()');
   }
+  await loadAll();
+  renderBulkForm();
+}
+
+// 過去一括入力の失敗分だけを再保存する
+async function retryBulkSave() {
+  const job = pendingRetry.bulk;
+  if (!job || job.entries.length === 0) return;
+  const btn = document.getElementById('bulkSaveBtn');
+  btn.disabled = true;
+  showSaveErrors('bulkErrorBox', job.ym, []);
+  showToast(`${job.entries.length}件を再保存中...`, 'info');
+
+  const { ok, failed } = await saveEntries(job.ym, job.entries);
+  btn.disabled = false;
+
+  if (failed.length === 0) {
+    pendingRetry.bulk = null;
+    showToast(`✅ ${ok}件を保存しました！`, 'success');
+  } else {
+    pendingRetry.bulk = { ym: job.ym, entries: failed.map(f => ({ name: f.name, amount: f.amount })) };
+    showToast(`⚠️ ${ok}件成功、${failed.length}件がまだ失敗しています`, 'error');
+    showSaveErrors('bulkErrorBox', job.ym, failed, 'retryBulkSave()');
+  }
+  await loadAll();
+  renderBulkForm();
 }
 
 // ===== 設定 =====
@@ -944,6 +991,14 @@ async function loadAll() {
 }
 
 // ===== ダッシュボード描画 =====
+
+// 指定月の残高を「口座マスタの有効口座のみ」で合計する。
+// カード・グラフの両方がこの関数を使うことで集計対象を一致させる。
+function sumActiveAccounts(monthBalances) {
+  if (!monthBalances) return 0;
+  return accounts.reduce((s, acc) => s + (monthBalances[acc.name]?.amount || 0), 0);
+}
+
 function renderDashboard() {
   // dashboardMonth が存在するデータの中にあるか確認
   const availableMonths = Object.keys(allBalances).sort();
@@ -968,15 +1023,22 @@ function renderDashboard() {
   const badgeClass = diff >= 0 ? 'badge-green' : rate >= 80 ? 'badge-yellow' : 'badge-red';
 
   // グラフデータ（グラフは全月表示のまま）
+  // 上のカードと同じ「口座マスタの有効口座のみ」で集計する。
+  // 月次残高DBの全レコードを合計すると、無効化した口座やマスタに無い口座名
+  // （旧 (Yoko) 表記の残骸など）が混ざり、カードの数字とグラフがズレるため。
   const months = availableMonths;
-  const chartData = months.map(ym => {
-    const mb = allBalances[ym];
-    return Object.values(mb).reduce((s, v) => s + v.amount, 0);
-  });
+  const chartData = months.map(ym => sumActiveAccounts(allBalances[ym]));
+
+  // マスタに存在しない口座名のレコードを検出（データ不整合の可視化）
+  const activeNames = new Set(accounts.map(a => a.name));
+  const orphans = Object.entries(monthBalances)
+    .filter(([name, v]) => !activeNames.has(name) && (v.amount || 0) !== 0)
+    .map(([name, v]) => ({ name, amount: v.amount }));
+  const orphanTotal = orphans.reduce((s, o) => s + o.amount, 0);
 
   // グラフの表示範囲を計算（最小値-10%〜目標+5%、ただし目標の90%以上は省略）
-  const dataMin = Math.min(...chartData);
-  const dataMax = Math.max(...chartData);
+  const dataMin = chartData.length ? Math.min(...chartData) : 0;
+  const dataMax = chartData.length ? Math.max(...chartData) : targetAmount;
   const padding = (dataMax - dataMin) * 0.1;
   const chartMin = Math.max(0, Math.floor((dataMin - padding) / 2000000) * 2000000);
   const chartMax = Math.ceil((Math.max(dataMax, targetAmount) + padding) / 2000000) * 2000000;
@@ -1014,6 +1076,26 @@ function renderDashboard() {
         ${renderTypeSummary(monthBalances)}
       </div>
     </div>
+
+    ${orphans.length > 0 ? `
+    <div class="card warn-card">
+      <div class="card-title">⚠️ 口座マスタに無い残高レコード（${dashboardMonth}）</div>
+      <div style="font-size:13px; color:var(--text2); margin-bottom:12px;">
+        以下は月次残高DBにありますが、口座マスタに無いか無効化されています。
+        上の合計には含めていません。口座名の表記ゆれ（大文字小文字など）が原因の可能性があります。
+      </div>
+      ${orphans.map(o => `
+        <div class="owner-row">
+          <div class="owner-name">${escapeHtml(o.name)}</div>
+          <div class="owner-amount">${fmtYen(o.amount)}</div>
+        </div>
+      `).join('')}
+      <div class="owner-row" style="margin-top:8px; border-top:1px solid var(--border); padding-top:12px;">
+        <div class="owner-name" style="font-weight:600;">除外合計</div>
+        <div class="owner-amount" style="color:#fbbf24;">${fmtYen(orphanTotal)}</div>
+      </div>
+    </div>
+    ` : ''}
 
     <div class="card">
       <div class="card-title">総資産推移</div>
@@ -1174,7 +1256,8 @@ function renderInputForm() {
 }
 
 function updateTotal() {
-  const inputs = document.querySelectorAll('.amount-input');
+  // .amount-input は過去一括入力の欄にも付いているため、月次入力画面に限定する
+  const inputs = document.querySelectorAll('#page-input .amount-input');
   let total = 0;
   inputs.forEach(inp => { total += Number(inp.dataset.raw) || 0; });
   document.getElementById('inputTotal').textContent = fmtYen(total);
@@ -1202,7 +1285,7 @@ function onAmountBlur(el) {
 function onAmountKeydown(e, el) {
   if (e.key === 'Enter') {
     e.preventDefault();
-    const inputs = Array.from(document.querySelectorAll('.amount-input'));
+    const inputs = Array.from(document.querySelectorAll('#page-input .amount-input'));
     const idx = inputs.indexOf(el);
     if (idx < inputs.length - 1) {
       inputs[idx + 1].focus();
@@ -1232,12 +1315,90 @@ function changeDashMonth(delta) {
   renderDashboard();
 }
 
-// ===== 保存処理 =====
+// ===== 保存処理（月次入力・過去一括入力で共通） =====
+
+// 失敗した入力を画面ごとに保持し、「失敗分だけ再保存」できるようにする
+const pendingRetry = { input: null, bulk: null };
+
+// 1件分の書き込み。失敗したら指数バックオフで最大3回まで再試行する
+async function writeBalance(ym, name, amount, existingPageId) {
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (existingPageId) {
+        await notionFetch(`/pages/${existingPageId}`, 'PATCH', {
+          properties: { '残高': { number: amount } }
+        });
+      } else {
+        await notionFetch('/pages', 'POST', {
+          parent: { database_id: DB_IDS.balances },
+          properties: {
+            '名前': { title: [{ text: { content: `${ym}_${name}` } }] },
+            '年月': { rich_text: [{ text: { content: ym } }] },
+            '口座名': { rich_text: [{ text: { content: name } }] },
+            '残高': { number: amount }
+          }
+        });
+      }
+      return null; // 成功
+    } catch (e) {
+      lastErr = e;
+      // レート制限（429）や一時的なエラーを想定：600ms → 1200ms と待って再試行
+      if (attempt < 2) await sleep(600 * Math.pow(2, attempt));
+    }
+  }
+  return lastErr;
+}
+
+// entries を順番に保存。戻り値は { ok, failed[] }
+async function saveEntries(ym, entries, onProgress) {
+  const monthBalances = allBalances[ym] || {};
+  const failed = [];
+  let ok = 0;
+  for (let i = 0; i < entries.length; i++) {
+    const { name, amount } = entries[i];
+    const err = await writeBalance(ym, name, amount, monthBalances[name]?.pageId);
+    if (err) failed.push({ name, amount, message: err.message || '不明なエラー' });
+    else ok++;
+    if (onProgress) onProgress(i + 1, entries.length);
+    // レート制限対策：1秒3リクエストを超えないよう300ms待機
+    if (i < entries.length - 1) await sleep(300);
+  }
+  return { ok, failed };
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// 失敗した口座名を画面に残す（トーストは消えてしまうため）
+function showSaveErrors(boxId, ym, failed, retryFn) {
+  const box = document.getElementById(boxId);
+  if (!box) return;
+  if (!failed || failed.length === 0) {
+    box.className = 'error-box';
+    box.innerHTML = '';
+    return;
+  }
+  const names = failed.map(f => escapeHtml(f.name)).join('、');
+  const reasons = [...new Set(failed.map(f => f.message))].map(escapeHtml).join(' / ');
+  box.innerHTML = `
+    <div class="error-title">⚠️ ${ym} の ${failed.length}件が保存できませんでした</div>
+    <div class="error-names">${names}</div>
+    <div class="error-names" style="margin-bottom:10px;">原因: ${reasons}</div>
+    <button class="btn-secondary" onclick="${retryFn}">失敗した${failed.length}件を再保存</button>
+  `;
+  box.className = 'error-box show';
+}
+
 async function saveBalances() {
   const btn = document.getElementById('saveBtn');
+  const label = btn.textContent;
   btn.disabled = true;
+  showSaveErrors('inputErrorBox', currentMonth, []);
 
-  const inputs = document.querySelectorAll('.amount-input');
+  const inputs = document.querySelectorAll('#page-input .amount-input');
   const entries = [];
   inputs.forEach(inp => {
     if (inp.dataset.raw && inp.dataset.raw !== '') {
@@ -1252,46 +1413,46 @@ async function saveBalances() {
   }
 
   showToast(`${entries.length}件を保存中...`, 'info');
+  const { ok, failed } = await saveEntries(currentMonth, entries, (done, total) => {
+    btn.textContent = `保存中... (${done}/${total})`;
+  });
 
-  const monthBalances = allBalances[currentMonth] || {};
-  let ok = 0, ng = 0;
-
-  for (let i = 0; i < entries.length; i++) {
-    const { name, amount } = entries[i];
-    try {
-      const existing = monthBalances[name];
-      if (existing?.pageId) {
-        // 更新
-        await notionFetch(`/pages/${existing.pageId}`, 'PATCH', {
-          properties: { '残高': { number: amount } }
-        });
-      } else {
-        // 新規作成
-        await notionFetch('/pages', 'POST', {
-          parent: { database_id: DB_IDS.balances },
-          properties: {
-            '名前': { title: [{ text: { content: `${currentMonth}_${name}` } }] },
-            '年月': { rich_text: [{ text: { content: currentMonth } }] },
-            '口座名': { rich_text: [{ text: { content: name } }] },
-            '残高': { number: amount }
-          }
-        });
-      }
-      ok++;
-    } catch (e) {
-      ng++;
-    }
-    // レート制限対策：300ms待機
-    if (i < entries.length - 1) await sleep(300);
-  }
-
+  btn.textContent = label;
   btn.disabled = false;
-  if (ng === 0) {
+
+  if (failed.length === 0) {
+    pendingRetry.input = null;
     showToast(`✅ ${ok}件の残高を保存しました！`, 'success');
     await loadAll();
   } else {
-    showToast(`⚠️ ${ok}件成功、${ng}件失敗`, 'error');
+    pendingRetry.input = { ym: currentMonth, entries: failed.map(f => ({ name: f.name, amount: f.amount })) };
+    showToast(`⚠️ ${ok}件成功、${failed.length}件失敗`, 'error');
+    showSaveErrors('inputErrorBox', currentMonth, failed, 'retrySave()');
+    await loadAll();
   }
+}
+
+// 失敗分だけを再保存する
+async function retrySave() {
+  const job = pendingRetry.input;
+  if (!job || job.entries.length === 0) return;
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true;
+  showSaveErrors('inputErrorBox', job.ym, []);
+  showToast(`${job.entries.length}件を再保存中...`, 'info');
+
+  const { ok, failed } = await saveEntries(job.ym, job.entries);
+  btn.disabled = false;
+
+  if (failed.length === 0) {
+    pendingRetry.input = null;
+    showToast(`✅ ${ok}件を保存しました！`, 'success');
+  } else {
+    pendingRetry.input = { ym: job.ym, entries: failed.map(f => ({ name: f.name, amount: f.amount })) };
+    showToast(`⚠️ ${ok}件成功、${failed.length}件がまだ失敗しています`, 'error');
+    showSaveErrors('inputErrorBox', job.ym, failed, 'retrySave()');
+  }
+  await loadAll();
 }
 
 // ===== 設定 =====
@@ -1416,10 +1577,6 @@ function showToast(msg, type = 'info') {
   el.textContent = msg;
   el.className = `show ${type}`;
   setTimeout(() => el.className = type, 3000);
-}
-
-function fmtYen(n) {
-  return '¥' + Math.abs(Math.round(n)).toLocaleString('ja-JP') * (n < 0 ? -1 : 1);
 }
 
 function fmtYen(n) {
