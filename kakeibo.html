@@ -659,6 +659,21 @@
       </div>
 
       <div class="settings-section section-gap">
+        <div class="settings-title">🔗 Yoko用共有リンク</div>
+        <div class="settings-row">
+          <div class="settings-label" style="font-size:13px; color:var(--text2);">このリンクをYokoにLINEで送るだけで自動ログインできます</div>
+        </div>
+        <div class="settings-row">
+          <button class="btn-secondary" onclick="generateShareLink()">リンクを生成</button>
+          <button class="btn-secondary" onclick="copyShareLink()" id="copyLinkBtn" style="display:none; margin-left:8px;">コピー</button>
+        </div>
+        <div id="shareLinkBox" style="display:none; margin-top:8px;">
+          <div style="font-size:11px; color:var(--text3); margin-bottom:4px;">⚠️ このリンクにはトークンが含まれます。Yoko以外に送らないでください。</div>
+          <div id="shareLinkText" style="font-family:var(--mono); font-size:11px; color:var(--accent); word-break:break-all; padding:8px; background:var(--surface2); border-radius:6px; border:1px solid var(--border);"></div>
+        </div>
+      </div>
+
+      <div class="settings-section section-gap">
         <div class="settings-title">🎯 目標金額</div>
         <div class="settings-row">
           <div class="settings-label">目標総資産額（円）</div>
@@ -1303,6 +1318,34 @@ function updateTokenDisplay() {
   }
 }
 
+function generateShareLink() {
+  if (!notionToken) {
+    showToast('先にAPIトークンを設定してください', 'error');
+    return;
+  }
+  const baseUrl = window.location.origin + window.location.pathname;
+  const link = `${baseUrl}#token=${notionToken}`;
+  document.getElementById('shareLinkText').textContent = link;
+  document.getElementById('shareLinkBox').style.display = 'block';
+  document.getElementById('copyLinkBtn').style.display = 'inline-block';
+}
+
+function copyShareLink() {
+  const link = document.getElementById('shareLinkText').textContent;
+  navigator.clipboard.writeText(link).then(() => {
+    showToast('リンクをコピーしました！', 'success');
+  }).catch(() => {
+    // フォールバック
+    const el = document.createElement('textarea');
+    el.value = link;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+    showToast('リンクをコピーしました！', 'success');
+  });
+}
+
 async function saveTarget() {
   const val = Number(document.getElementById('targetInput').value);
   if (!val) { showToast('金額を入力してください', 'error'); return; }
@@ -1394,6 +1437,19 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ===== 初期化 =====
 window.addEventListener('load', () => {
+  // URLハッシュからトークンを自動読み込み
+  // 例: kakeibo.html#token=ntn_xxxxx
+  const hash = window.location.hash;
+  if (hash && hash.includes('token=')) {
+    const tokenFromUrl = hash.split('token=')[1].split('&')[0];
+    if (tokenFromUrl && (tokenFromUrl.startsWith('ntn_') || tokenFromUrl.startsWith('secret_'))) {
+      notionToken = tokenFromUrl;
+      storeToken(tokenFromUrl);
+      // セキュリティのためURLからトークンを除去
+      history.replaceState(null, '', window.location.pathname);
+    }
+  }
+
   // スマホ判定してボトムナビ表示
   function checkMobile() {
     const isMobile = window.innerWidth <= 600;
