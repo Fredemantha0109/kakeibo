@@ -1051,9 +1051,9 @@ function renderDelta(cur, prev, hasPrev) {
   return `<span class="delta ${cls}">${sign}${fmtYen(diff)}${pct}</span>`;
 }
 
-// 見込COF/CIF は固定色を使うため、パレットから被りそうな色を除外して7色にする
 const TYPE_COLORS = [
   '#4f8ef7', // 青
+  '#34d399', // 緑
   '#fbbf24', // 黄
   '#f472b6', // ピンク
   '#a78bfa', // 紫
@@ -1061,6 +1061,7 @@ const TYPE_COLORS = [
   '#fb923c', // オレンジ
   '#94a3b8', // グレー
 ];
+function typeColor(i) { return TYPE_COLORS[i % TYPE_COLORS.length]; }
 
 // 資産種別の表示名。Notionのselectが未設定の口座は '未分類' に寄せる。
 function typeLabel(acc) { return acc.type || '未分類'; }
@@ -1073,17 +1074,8 @@ function isCofAccount(acc) { return typeLabel(acc) === COF_TYPE; }
 const CIF_TYPE = '見込CIF';
 function isCifAccount(acc) { return typeLabel(acc) === CIF_TYPE; }
 
-// 意味が決まっている種別は色を固定する（並び順で色が変わらないように）
-const FIXED_TYPE_COLORS = {
-  [COF_TYPE]: '#f87171', // 赤（--red と同系）
-  [CIF_TYPE]: '#34d399', // 緑（--green と同系）
-};
-
-// 種別名とパレットインデックスを受け取って色を返す
-function typeColor(type, i) {
-  if (FIXED_TYPE_COLORS[type]) return FIXED_TYPE_COLORS[type];
-  return TYPE_COLORS[i % TYPE_COLORS.length];
-}
+// 資産種別の推移グラフから除外する種別（カード集計には含める）
+const EXCLUDED_TREND_TYPES = [COF_TYPE, CIF_TYPE];
 
 // 全月・全種別の推移データを返す。
 // 戻り値: { months: ['2026-01',...], types: ['預金',...], series: { '預金': [数値,...] } }
@@ -1091,7 +1083,9 @@ function typeColor(type, i) {
 // 種別の並びは最新月の金額の降順（積み上げの下から大きい種別が来るよう）。
 function buildTypeSeries(months) {
   const typeSet = new Set();
-  accounts.forEach(acc => typeSet.add(typeLabel(acc)));
+  accounts.forEach(acc => {
+    if (!EXCLUDED_TREND_TYPES.includes(typeLabel(acc))) typeSet.add(typeLabel(acc));
+  });
   const typeList = [...typeSet];
 
   const series = {};
@@ -1101,6 +1095,7 @@ function buildTypeSeries(months) {
     const mb = allBalances[ym] || {};
     accounts.forEach(acc => {
       const t = typeLabel(acc);
+      if (EXCLUDED_TREND_TYPES.includes(t)) return;
       series[t][mi] += mb[acc.name]?.amount || 0;
     });
   });
@@ -1242,7 +1237,7 @@ function renderDashboard() {
 
     <div class="card">
       <div class="card-title">資産種別の推移</div>
-      <div style="font-size:12px; color:var(--text2); margin-bottom:12px;">凡例をクリックするとその種別だけ表示されます（もう一度クリックで全表示）</div>
+      <div style="font-size:12px; color:var(--text2); margin-bottom:12px;">凡例をクリックするとその種別だけ表示されます（もう一度クリックで全表示）／見込COF・見込CIFは除外</div>
       <div class="chart-container">
         <canvas id="typeTrendChart"></canvas>
       </div>
@@ -1346,10 +1341,10 @@ function renderDashboard() {
         datasets: types.map((t, i) => ({
           label: t,
           data: series[t],
-          borderColor: typeColor(t, i),
-          backgroundColor: typeColor(t, i),
+          borderColor: typeColor(i),
+          backgroundColor: typeColor(i),
           borderWidth: 2,
-          pointBackgroundColor: typeColor(t, i),
+          pointBackgroundColor: typeColor(i),
           pointRadius: 3,
           fill: false,
           tension: 0.3,
