@@ -239,6 +239,7 @@
     font-style: italic;
   }
   .amount-input.cof { color: var(--red); }
+  .amount-input.cif { color: var(--green); }
   .prefill-badge {
     display: inline-block;
     margin-left: 8px;
@@ -793,7 +794,8 @@ function renderBulkForm() {
         const value = raw != null ? raw : '';
         const displayVal = value !== '' ? Number(value).toLocaleString('ja-JP') : '';
         const isCof = isCofAccount(acc);
-        const inputClass = `bulk-input amount-input${isCof ? ' cof' : ''}`;
+        const isCif = isCifAccount(acc);
+        const inputClass = `bulk-input amount-input${isCof ? ' cof' : isCif ? ' cif' : ''}`;
         return `
           <div class="input-row">
             <div class="input-name">${acc.name}</div>
@@ -1049,9 +1051,9 @@ function renderDelta(cur, prev, hasPrev) {
   return `<span class="delta ${cls}">${sign}${fmtYen(diff)}${pct}</span>`;
 }
 
+// 見込COF/CIF は固定色を使うため、パレットから被りそうな色を除外して7色にする
 const TYPE_COLORS = [
   '#4f8ef7', // 青
-  '#34d399', // 緑
   '#fbbf24', // 黄
   '#f472b6', // ピンク
   '#a78bfa', // 紫
@@ -1059,8 +1061,6 @@ const TYPE_COLORS = [
   '#fb923c', // オレンジ
   '#94a3b8', // グレー
 ];
-function typeColor(i) { return TYPE_COLORS[i % TYPE_COLORS.length]; }
-
 
 // 資産種別の表示名。Notionのselectが未設定の口座は '未分類' に寄せる。
 function typeLabel(acc) { return acc.type || '未分類'; }
@@ -1068,6 +1068,22 @@ function typeLabel(acc) { return acc.type || '未分類'; }
 // 見込みキャッシュアウトフロー。常にマイナスとして保存・表示・集計する。
 const COF_TYPE = '見込COF';
 function isCofAccount(acc) { return typeLabel(acc) === COF_TYPE; }
+
+// 見込みキャッシュインフロー。常にプラス（符号の変換は不要）。
+const CIF_TYPE = '見込CIF';
+function isCifAccount(acc) { return typeLabel(acc) === CIF_TYPE; }
+
+// 意味が決まっている種別は色を固定する（並び順で色が変わらないように）
+const FIXED_TYPE_COLORS = {
+  [COF_TYPE]: '#f87171', // 赤（--red と同系）
+  [CIF_TYPE]: '#34d399', // 緑（--green と同系）
+};
+
+// 種別名とパレットインデックスを受け取って色を返す
+function typeColor(type, i) {
+  if (FIXED_TYPE_COLORS[type]) return FIXED_TYPE_COLORS[type];
+  return TYPE_COLORS[i % TYPE_COLORS.length];
+}
 
 // 全月・全種別の推移データを返す。
 // 戻り値: { months: ['2026-01',...], types: ['預金',...], series: { '預金': [数値,...] } }
@@ -1330,10 +1346,10 @@ function renderDashboard() {
         datasets: types.map((t, i) => ({
           label: t,
           data: series[t],
-          borderColor: typeColor(i),
-          backgroundColor: typeColor(i),
+          borderColor: typeColor(t, i),
+          backgroundColor: typeColor(t, i),
           borderWidth: 2,
-          pointBackgroundColor: typeColor(i),
+          pointBackgroundColor: typeColor(t, i),
           pointRadius: 3,
           fill: false,
           tension: 0.3,
@@ -1444,8 +1460,10 @@ function renderInputForm() {
         const value       = current != null ? current : (prefill != null ? prefill : '');
         const displayVal  = value !== '' ? Number(value).toLocaleString('ja-JP') : '';
         const isCof = isCofAccount(acc);
+        const isCif = isCifAccount(acc);
         let inputClass = isPrefilled ? 'amount-input prefilled' : 'amount-input';
         if (isCof) inputClass += ' cof';
+        else if (isCif) inputClass += ' cif';
         const badge       = isPrefilled
           ? `<span class="prefill-badge" data-prefill-badge="${acc.name}">${prefillMonth}のまま</span>`
           : '';
