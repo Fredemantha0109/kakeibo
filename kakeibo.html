@@ -240,7 +240,6 @@
   }
   .amount-input.cof { color: var(--red); }
   .amount-input.cif { color: var(--green); }
-  .amount-input.fixedcost { color: var(--yellow); }
   .prefill-badge {
     display: inline-block;
     margin-left: 8px;
@@ -366,49 +365,103 @@
     border-bottom: 1px solid var(--border);
   }
 
-  /* 固定費セクション（年1回程度しか触らないのでデフォルトで折りたたむ） */
-  .fc-label {
-    cursor: pointer;
-    user-select: none;
-    justify-content: flex-start;
+  /* 固定費の入力グリッド（項目 × 12ヶ月）。PC優先、スマホは横スクロール */
+  .fc-grid-wrap {
+    overflow-x: auto;
+    margin: 0 -4px;
   }
 
-  .fc-label:hover { color: var(--text); }
-
-  .fc-caret {
-    display: inline-block;
-    width: 10px;
-    font-size: 10px;
-    transition: transform 0.15s;
+  .fc-input-table {
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+    width: 100%;
   }
 
-  .fc-label.open .fc-caret { transform: rotate(90deg); }
-
-  .fc-hint {
-    margin-left: auto;
+  .fc-input-table th {
     font-size: 11px;
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: 0;
+    font-weight: 600;
     color: var(--text3);
+    padding: 6px 2px;
+    text-align: center;
+    white-space: nowrap;
   }
 
-  .fc-body[hidden] { display: none; }
+  .fc-input-table td {
+    padding: 3px 2px;
+    border-bottom: 1px solid rgba(46,50,80,0.5);
+  }
 
-  /* 固定費の行に出す「直近の記録」バッジ。読み取り専用（プレフィルではない） */
-  .fc-last {
-    display: inline-block;
-    margin-left: 8px;
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-size: 10px;
-    font-family: var(--mono);
-    color: var(--text2);
+  .fc-input-table tr:last-child td { border-bottom: none; }
+
+  /* 項目名の列は横スクロールしても左に固定する */
+  .fc-input-table th.fc-name,
+  .fc-input-table td.fc-name {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--surface);
+    text-align: left;
+    white-space: nowrap;
+    padding-right: 10px;
+    color: var(--text);
+    font-size: 12px;
+  }
+
+  .fc-input-table th.fc-name { color: var(--text3); font-size: 11px; }
+
+  .fc-cell {
+    width: 62px;
+    padding: 6px 5px;
     background: var(--surface2);
     border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    text-align: right;
+    transition: border-color 0.15s, background 0.15s;
   }
 
-  .fc-last.fc-none { color: var(--text3); }
+  .fc-cell:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* 記録あり＝黄。未入力は薄いまま。変更した欄は枠を強調して保存対象だと分かるように */
+  .fc-cell.has-value { color: var(--yellow); }
+  .fc-cell.dirty {
+    border-color: var(--accent);
+    background: rgba(79,142,247,0.12);
+  }
+
+  /* 年計の列 */
+  .fc-input-table th.fc-rowtotal,
+  .fc-input-table td.fc-rowtotal {
+    text-align: right;
+    font-family: var(--mono);
+    color: var(--text2);
+    white-space: nowrap;
+    padding-left: 10px;
+    border-left: 1px solid var(--border);
+  }
+
+  .fc-input-table tr.fc-monthtotal td {
+    border-top: 1px solid var(--border);
+    border-bottom: none;
+    padding-top: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    text-align: right;
+    color: var(--yellow);
+    white-space: nowrap;
+  }
+
+  .fc-input-table tr.fc-monthtotal td.fc-name {
+    font-family: var(--font);
+    font-weight: 600;
+    color: var(--text);
+  }
 
   /* ダッシュボードの固定費カード */
   .fc-note {
@@ -746,6 +799,7 @@
     <button class="nav-tab active" onclick="showPage('dashboard', this)">📊 ダッシュボード</button>
     <button class="nav-tab" onclick="showPage('input', this)">✏️ 月次入力</button>
     <button class="nav-tab" onclick="showPage('bulk', this)">📅 過去一括入力</button>
+    <button class="nav-tab" onclick="showPage('fixed', this)">🧾 固定費</button>
     <button class="nav-tab" onclick="showPage('settings', this)">⚙️ 設定</button>
   </div>
   <div class="nav-status" id="navStatus">読み込み中...</div>
@@ -760,6 +814,9 @@
   </button>
   <button class="bottom-tab" onclick="showPage('bulk', this)">
     <span class="tab-icon">📅</span>過去入力
+  </button>
+  <button class="bottom-tab" onclick="showPage('fixed', this)">
+    <span class="tab-icon">🧾</span>固定費
   </button>
   <button class="bottom-tab" onclick="showPage('settings', this)">
     <span class="tab-icon">⚙️</span>設定
@@ -824,6 +881,30 @@
       <div class="save-area">
         <div class="total-preview">入力合計: <span id="bulkTotal">¥0</span></div>
         <button class="btn-primary" id="bulkSaveBtn" onclick="saveBulkBalances()">この月を保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 固定費（年グリッド） -->
+  <div id="page-fixed" class="page">
+    <div class="input-header" style="margin-bottom:16px;">
+      <div>
+        <div class="month-display" id="fixedYearLabel">2026年</div>
+        <div style="font-size:12px; color:var(--text3); margin-top:4px;">領収書を見ながら、払った月のマスに入力</div>
+      </div>
+      <div class="month-nav">
+        <button class="month-btn" onclick="changeFixedYear(-1)">← 前年</button>
+        <button class="month-btn" onclick="changeFixedYear(1)">次年 →</button>
+      </div>
+    </div>
+    <div class="card">
+      <div id="fixedContent">
+        <div class="loading"><div class="spinner"></div>読み込み中...</div>
+      </div>
+      <div class="error-box" id="fixedErrorBox"></div>
+      <div class="save-area">
+        <div class="total-preview">年計: <span id="fixedYearTotal">¥0</span><span id="fixedDirtyCount" style="margin-left:12px; font-size:13px; color:var(--text2);"></span></div>
+        <button class="btn-primary" id="fixedSaveBtn" onclick="saveFixedCosts()">変更を保存</button>
       </div>
     </div>
   </div>
@@ -899,9 +980,8 @@ function renderBulkForm() {
   document.getElementById('bulkMonthLabel').textContent = bulkMonth;
   const monthBalances = allBalances[bulkMonth] || {};
 
-  // 固定費はオーナー別セクションから外し、専用の折りたたみセクションにまとめる
+  // 固定費はこの画面には出さない（専用の「固定費」タブで年グリッドから入力する）
   const assetAccs = accounts.filter(a => !isFixedCostAccount(a));
-  const fixedAccs = accounts.filter(a => isFixedCostAccount(a));
   const yuiAccs = assetAccs.filter(a => a.owner === 'Yuichiro');
   const yokoAccs = assetAccs.filter(a => a.owner === 'Yoko');
 
@@ -911,18 +991,15 @@ function renderBulkForm() {
     const displayVal = value !== '' ? Number(value).toLocaleString('ja-JP') : '';
     const isCof = isCofAccount(acc);
     const isCif = isCifAccount(acc);
-    const isFixed = isFixedCostAccount(acc);
-    const inputClass = `bulk-input amount-input${isCof ? ' cof' : isCif ? ' cif' : isFixed ? ' fixedcost' : ''}`;
+    const inputClass = `bulk-input amount-input${isCof ? ' cof' : isCif ? ' cif' : ''}`;
     return `
       <div class="input-row">
-        <div class="input-name">${isFixed ? fixedCostLabel(acc.name) : acc.name}${
-          isFixed ? fixedCostLastBadge(acc.name, bulkMonth) : ''}</div>
+        <div class="input-name">${acc.name}</div>
         <div class="input-type">${typeLabel(acc)}</div>
         <input type="text" inputmode="numeric" class="${inputClass}"
           data-name="${acc.name}"
           data-raw="${value}"
           ${isCof ? 'data-cof="1"' : ''}
-          ${isFixed ? 'data-fixedcost="1"' : ''}
           value="${displayVal}"
           placeholder="0"
           oninput="onAmountInput(this); updateBulkTotal()"
@@ -944,15 +1021,14 @@ function renderBulkForm() {
 
   document.getElementById('bulkContent').innerHTML =
     renderSection('Yuichiro', yuiAccs, 'dot-yuichiro') +
-    renderSection('Yoko', yokoAccs, 'dot-yoko') +
-    renderFixedCostSection('bulk', fixedAccs, monthBalances, renderRow, bulkMonth);
+    renderSection('Yoko', yokoAccs, 'dot-yoko');
 
   updateBulkTotal();
 }
 
 function updateBulkTotal() {
-  // 固定費は資産ではないので合計に含めない
-  const inputs = document.querySelectorAll('.bulk-input:not([data-fixedcost])');
+  // 固定費はこの画面に出さないので、ここは通常口座だけの合計になる
+  const inputs = document.querySelectorAll('.bulk-input');
   let total = 0;
   inputs.forEach(inp => { total += Number(inp.dataset.raw) || 0; });
   document.getElementById('bulkTotal').textContent = fmtYen(total);
@@ -1765,9 +1841,8 @@ function renderInputForm() {
   const prefillMonth = sortedMonths.filter(ym => ym < currentMonth).pop() || '';
   const prefillBalances = prefillMonth ? (allBalances[prefillMonth] || {}) : {};
 
-  // 固定費はオーナー別セクションから外し、専用の折りたたみセクションにまとめる
+  // 固定費はこの画面には出さない（専用の「固定費」タブで年グリッドから入力する）
   const assetAccs = accounts.filter(a => !isFixedCostAccount(a));
-  const fixedAccs = accounts.filter(a => isFixedCostAccount(a));
   const yuiAccs = assetAccs.filter(a => a.owner === 'Yuichiro');
   const yokoAccs = assetAccs.filter(a => a.owner === 'Yoko');
 
@@ -1775,10 +1850,8 @@ function renderInputForm() {
     const current = monthBalances[acc.name]?.amount;
     const prefill  = prefillBalances[acc.name]?.amount;
 
-    // 固定費は「先月と同じ額を毎月払う」ものではないのでプレフィルしない。
-    const isFixed = isFixedCostAccount(acc);
     // 優先順位: 当月レコードあり → 確定値 / 前月レコードあり → プレフィル / どちらも無し → 空
-    const isPrefilled = !isFixed && current == null && prefill != null;
+    const isPrefilled = current == null && prefill != null;
     const value       = current != null ? current : (isPrefilled ? prefill : '');
     const displayVal  = value !== '' ? Number(value).toLocaleString('ja-JP') : '';
     const isCof = isCofAccount(acc);
@@ -1786,22 +1859,19 @@ function renderInputForm() {
     let inputClass = isPrefilled ? 'amount-input prefilled' : 'amount-input';
     if (isCof) inputClass += ' cof';
     else if (isCif) inputClass += ' cif';
-    else if (isFixed) inputClass += ' fixedcost';
     const badge       = isPrefilled
       ? `<span class="prefill-badge" data-prefill-badge="${acc.name}">${prefillMonth}のまま</span>`
-      // 固定費は直近の記録を読み取り専用で出す（入力欄には入れない）
-      : (isFixed ? fixedCostLastBadge(acc.name, currentMonth) : '');
+      : '';
 
     return `
       <div class="input-row">
-        <div class="input-name">${isFixed ? fixedCostLabel(acc.name) : acc.name}${badge}</div>
+        <div class="input-name">${acc.name}${badge}</div>
         <div class="input-type">${typeLabel(acc)}</div>
         <input type="text" inputmode="numeric" class="${inputClass}"
           data-name="${acc.name}"
           data-raw="${value}"
           ${isPrefilled ? 'data-prefilled="1"' : ''}
           ${isCof ? 'data-cof="1"' : ''}
-          ${isFixed ? 'data-fixedcost="1"' : ''}
           value="${displayVal}"
           placeholder="0"
           oninput="onAmountInput(this)"
@@ -1823,66 +1893,15 @@ function renderInputForm() {
 
   document.getElementById('inputContent').innerHTML =
     renderSection('Yuichiro', yuiAccs, 'dot-yuichiro') +
-    renderSection('Yoko', yokoAccs, 'dot-yoko') +
-    renderFixedCostSection('input', fixedAccs, monthBalances, renderRow, currentMonth);
+    renderSection('Yoko', yokoAccs, 'dot-yoko');
 
   updateTotal();
 }
 
-// 入力画面ごとの固定費セクションの開閉状態。再描画をまたいで保持する（初期は閉じる）
-// 固定費の「直近の記録」を返す（表示中の月は除く）。無ければ null。
-function lastFixedCostRecord(name, excludeYm) {
-  const months = Object.keys(allBalances).filter(ym => ym !== excludeYm).sort();
-  for (let i = months.length - 1; i >= 0; i--) {
-    const amt = allBalances[months[i]]?.[name]?.amount;
-    if (amt) return { ym: months[i], amount: amt };
-  }
-  return null;
-}
-
-// 固定費の行に付ける「直近 2026-07 ¥100,000」バッジ
-function fixedCostLastBadge(name, excludeYm) {
-  const last = lastFixedCostRecord(name, excludeYm);
-  return last
-    ? `<span class="fc-last">直近 ${last.ym} ${fmtYen(last.amount)}</span>`
-    : `<span class="fc-last fc-none">記録なし</span>`;
-}
-
-const fixedCostOpen = { input: false, bulk: false };
-
-// 固定費の折りたたみセクション。scope は 'input' | 'bulk'。
-function renderFixedCostSection(scope, accs, monthBalances, renderRow, ym) {
-  if (accs.length === 0) return '';
-  const open = fixedCostOpen[scope];
-  const entered = accs.filter(a => monthBalances[a.name]?.amount != null).length;
-  const hint = `<strong>${ym}</strong> として記録`
-    + (entered > 0 ? ` ・ ${entered}件 入力済み` : ' ・ 支払った月だけ入力');
-  return `
-    <div class="owner-section">
-      <div class="owner-label fc-label ${open ? 'open' : ''}"
-           id="fcLabel-${scope}" onclick="toggleFixedCost('${scope}')">
-        <span class="fc-caret">▶</span>${FIXED_COST_TYPE}（年次）
-        <span class="fc-hint">${hint}</span>
-      </div>
-      <div class="fc-body" id="fcBody-${scope}" ${open ? '' : 'hidden'}>
-        ${accs.map(renderRow).join('')}
-      </div>
-    </div>
-  `;
-}
-
-function toggleFixedCost(scope) {
-  fixedCostOpen[scope] = !fixedCostOpen[scope];
-  const body = document.getElementById(`fcBody-${scope}`);
-  const label = document.getElementById(`fcLabel-${scope}`);
-  if (body) body.hidden = !fixedCostOpen[scope];
-  if (label) label.classList.toggle('open', fixedCostOpen[scope]);
-}
-
 function updateTotal() {
   // .amount-input は過去一括入力の欄にも付いているため、月次入力画面に限定する
-  // 固定費は資産ではないので画面下部の合計にも含めない（ダッシュボードの総資産と揃える）
-  const inputs = document.querySelectorAll('#page-input .amount-input:not([data-fixedcost])');
+  // 固定費はこの画面に出さないので、ここは通常口座だけの合計になる
+  const inputs = document.querySelectorAll('#page-input .amount-input');
   let total = 0;
   inputs.forEach(inp => { total += Number(inp.dataset.raw) || 0; });
   document.getElementById('inputTotal').textContent = fmtYen(total);
@@ -1961,7 +1980,7 @@ function changeDashMonth(delta) {
 // ===== 保存処理（月次入力・過去一括入力で共通） =====
 
 // 失敗した入力を画面ごとに保持し、「失敗分だけ再保存」できるようにする
-const pendingRetry = { input: null, bulk: null };
+const pendingRetry = { input: null, bulk: null, fixed: null };
 
 // 1件分の書き込み。失敗したら指数バックオフで最大3回まで再試行する
 async function writeBalance(ym, name, amount, existingPageId) {
@@ -2098,6 +2117,270 @@ async function retrySave() {
   await loadAll();
 }
 
+// ===== 固定費の入力（年グリッド） =====
+// 月次入力とは独立したタブ。年を選ぶと 項目 × 12ヶ月 の表が出て、払った月のマスに直接打ち込む。
+// 領収書を見ながら1件ずつ入れる使い方なので、月の切り替えなしで1年分を扱えるようにしている。
+let fixedYear = new Date().getFullYear();
+
+function fixedYearMonths(year) {
+  return Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
+}
+
+// 表示できる年の範囲。データのある最古の年から今年まで。
+function fixedYearRange() {
+  const years = Object.keys(allBalances)
+    .map(ym => Number(ym.slice(0, 4)))
+    .filter(y => Number.isInteger(y));
+  const thisYear = Number(getCurrentMonth().slice(0, 4));
+  const min = years.length ? Math.min(...years, thisYear) : thisYear;
+  return { min, max: thisYear };
+}
+
+function changeFixedYear(delta) {
+  const { min, max } = fixedYearRange();
+  const next = fixedYear + delta;
+  if (next < min || next > max) {
+    showToast(delta < 0 ? 'これより前のデータはありません' : '今年より先には進めません', 'info');
+    return;
+  }
+  fixedYear = next;
+  renderFixedForm();
+}
+
+function renderFixedForm() {
+  const { min, max } = fixedYearRange();
+  fixedYear = Math.min(Math.max(fixedYear, min), max);
+  document.getElementById('fixedYearLabel').textContent = `${fixedYear}年`;
+
+  const accs = accounts.filter(isFixedCostAccount);
+  const box = document.getElementById('fixedContent');
+  const btn = document.getElementById('fixedSaveBtn');
+
+  if (accs.length === 0) {
+    box.innerHTML = `
+      <div class="fc-note">
+        口座マスタに資産種別「${FIXED_COST_TYPE}」の項目がありません。
+        Notion側で登録すると、ここに 項目 × 12ヶ月 の入力表が出ます。
+      </div>`;
+    if (btn) btn.disabled = true;
+    document.getElementById('fixedYearTotal').textContent = fmtYen(0);
+    document.getElementById('fixedDirtyCount').textContent = '';
+    return;
+  }
+  if (btn) btn.disabled = false;
+
+  const months = fixedYearMonths(fixedYear);
+  const head = months.map((ym, i) => `<th>${i + 1}月</th>`).join('');
+
+  const rows = accs.map((acc, ri) => {
+    const cells = months.map(ym => {
+      // 記録が無い月は空欄。空欄のまま保存しても、その月のレコードは作られない。
+      const amt = allBalances[ym]?.[acc.name]?.amount;
+      const raw = amt == null ? '' : amt;
+      const cls = 'fc-cell' + (raw !== '' ? ' has-value' : '');
+      return `
+        <td>
+          <input type="text" inputmode="numeric" class="${cls}"
+            data-name="${acc.name}"
+            data-ym="${ym}"
+            data-raw="${raw}"
+            data-orig="${raw}"
+            value="${raw !== '' ? Number(raw).toLocaleString('ja-JP') : ''}"
+            placeholder="—"
+            oninput="onFixedCellInput(this)"
+            onfocus="onAmountFocus(this)"
+            onblur="onAmountBlur(this)"
+            onkeydown="onFixedCellKeydown(event, this)">
+        </td>`;
+    }).join('');
+    return `
+      <tr>
+        <td class="fc-name">${escapeHtml(fixedCostLabel(acc.name))}</td>
+        ${cells}
+        <td class="fc-rowtotal" id="fcRowTotal-${ri}">—</td>
+      </tr>`;
+  }).join('');
+
+  const monthTotalCells = months.map((ym, i) => `<td id="fcMonthTotal-${i}">—</td>`).join('');
+
+  box.innerHTML = `
+    <div class="fc-note">
+      暦年（1月〜12月）で集計します。<strong>払った月のマスにだけ</strong>金額を入れてください。
+      空欄の月はレコードを作りません。保存されるのは<strong>この画面で変更したマスだけ</strong>です。
+      ここに入れた金額は総資産には一切含まれません。
+    </div>
+    <div class="fc-grid-wrap">
+      <table class="fc-input-table">
+        <thead>
+          <tr><th class="fc-name">項目</th>${head}<th class="fc-rowtotal">年計</th></tr>
+        </thead>
+        <tbody>
+          ${rows}
+          <tr class="fc-monthtotal">
+            <td class="fc-name">月計</td>
+            ${monthTotalCells}
+            <td class="fc-rowtotal" id="fcGrandTotal">—</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  showSaveErrors('fixedErrorBox', `${fixedYear}年`, []);
+  updateFixedTotals();
+}
+
+function onFixedCellInput(el) {
+  const digits = el.value.replace(/[^0-9]/g, '');
+  el.dataset.raw = digits ? String(Number(digits)) : '';
+  el.value = digits ? Number(digits).toLocaleString('ja-JP') : '';
+  el.classList.toggle('has-value', digits !== '');
+  // 保存対象は「描画時点から変わったマス」だけ。枠を強調して分かるようにする
+  el.classList.toggle('dirty', (el.dataset.raw || '') !== (el.dataset.orig || ''));
+  updateFixedTotals();
+}
+
+function onFixedCellKeydown(e, el) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const cells = Array.from(document.querySelectorAll('#page-fixed .fc-cell'));
+  const idx = cells.indexOf(el);
+  if (idx >= 0 && idx < cells.length - 1) cells[idx + 1].focus();
+  else document.getElementById('fixedSaveBtn').focus();
+}
+
+// 行（項目）ごとの年計・列（月）ごとの月計・年計・変更件数を再計算する
+function updateFixedTotals() {
+  const rows = Array.from(document.querySelectorAll('#page-fixed .fc-input-table tbody tr'))
+    .filter(tr => !tr.classList.contains('fc-monthtotal'));
+  const monthSums = new Array(12).fill(0);
+  let grand = 0;
+  let dirty = 0;
+
+  rows.forEach((tr, ri) => {
+    const cells = Array.from(tr.querySelectorAll('.fc-cell'));
+    let rowSum = 0;
+    cells.forEach((c, mi) => {
+      const v = Number(c.dataset.raw) || 0;
+      rowSum += v;
+      monthSums[mi] += v;
+      if ((c.dataset.raw || '') !== (c.dataset.orig || '')) dirty++;
+    });
+    grand += rowSum;
+    const el = document.getElementById(`fcRowTotal-${ri}`);
+    if (el) el.textContent = rowSum ? fmtYen(rowSum) : '—';
+  });
+
+  monthSums.forEach((v, i) => {
+    const el = document.getElementById(`fcMonthTotal-${i}`);
+    if (el) el.textContent = v ? fmtYen(v) : '—';
+  });
+  const gt = document.getElementById('fcGrandTotal');
+  if (gt) gt.textContent = grand ? fmtYen(grand) : '—';
+
+  document.getElementById('fixedYearTotal').textContent = fmtYen(grand);
+  document.getElementById('fixedDirtyCount').textContent = dirty > 0 ? `変更 ${dirty}件` : '';
+}
+
+// 変更したマスだけを、年月ごとにまとめて保存する。
+// 96マスあっても実際に書きに行くのは触った分だけなので、レート制限にはかからない。
+async function saveFixedCosts() {
+  const btn = document.getElementById('fixedSaveBtn');
+  const label = btn.textContent;
+  showSaveErrors('fixedErrorBox', `${fixedYear}年`, []);
+
+  const byYm = {};
+  let count = 0;
+  document.querySelectorAll('#page-fixed .fc-cell').forEach(c => {
+    const raw = c.dataset.raw || '';
+    const orig = c.dataset.orig || '';
+    if (raw === orig) return;
+    // 金額を消した場合は0を書いて集計から落とす（レコード自体の削除はNotion側で行う）
+    const amount = raw === '' ? 0 : Number(raw);
+    if (!byYm[c.dataset.ym]) byYm[c.dataset.ym] = [];
+    byYm[c.dataset.ym].push({ name: c.dataset.name, amount });
+    count++;
+  });
+
+  const yms = Object.keys(byYm).sort();
+  if (yms.length === 0) {
+    showToast('変更がありません', 'info');
+    return;
+  }
+
+  btn.disabled = true;
+  showToast(`${count}件を保存中...`, 'info');
+
+  let ok = 0;
+  let done = 0;
+  const failedByYm = {};
+  let failedCount = 0;
+  for (const ym of yms) {
+    const { ok: o, failed } = await saveEntries(ym, byYm[ym], () => {
+      done++;
+      btn.textContent = `保存中... (${done}/${count})`;
+    });
+    ok += o;
+    if (failed.length > 0) {
+      failedByYm[ym] = failed.map(f => ({ name: f.name, amount: f.amount }));
+      failedCount += failed.length;
+    }
+  }
+
+  btn.textContent = label;
+  btn.disabled = false;
+
+  if (failedCount === 0) {
+    pendingRetry.fixed = null;
+    showToast(`✅ ${ok}件を保存しました！`, 'success');
+  } else {
+    pendingRetry.fixed = failedByYm;
+    showToast(`⚠️ ${ok}件成功、${failedCount}件失敗`, 'error');
+    // 失敗表示は年月をまたぐため、口座名に年月を添えて出す
+    const flat = Object.entries(failedByYm).flatMap(([ym, list]) =>
+      list.map(f => ({ name: `${ym} ${fixedCostLabel(f.name)}`, message: '保存に失敗しました' })));
+    showSaveErrors('fixedErrorBox', `${fixedYear}年`, flat, 'retryFixedSave()');
+  }
+
+  await loadAll();
+  renderFixedForm();
+}
+
+async function retryFixedSave() {
+  const job = pendingRetry.fixed;
+  if (!job) return;
+  const btn = document.getElementById('fixedSaveBtn');
+  btn.disabled = true;
+  showSaveErrors('fixedErrorBox', `${fixedYear}年`, []);
+
+  let ok = 0;
+  const stillFailed = {};
+  let failedCount = 0;
+  for (const ym of Object.keys(job).sort()) {
+    const { ok: o, failed } = await saveEntries(ym, job[ym]);
+    ok += o;
+    if (failed.length > 0) {
+      stillFailed[ym] = failed.map(f => ({ name: f.name, amount: f.amount }));
+      failedCount += failed.length;
+    }
+  }
+  btn.disabled = false;
+
+  if (failedCount === 0) {
+    pendingRetry.fixed = null;
+    showToast(`✅ ${ok}件を保存しました！`, 'success');
+  } else {
+    pendingRetry.fixed = stillFailed;
+    showToast(`⚠️ ${ok}件成功、${failedCount}件がまだ失敗しています`, 'error');
+    const flat = Object.entries(stillFailed).flatMap(([ym, list]) =>
+      list.map(f => ({ name: `${ym} ${fixedCostLabel(f.name)}`, message: '保存に失敗しました' })));
+    showSaveErrors('fixedErrorBox', `${fixedYear}年`, flat, 'retryFixedSave()');
+  }
+
+  await loadAll();
+  renderFixedForm();
+}
+
 // ===== 設定 =====
 function saveToken() {
   const val = document.getElementById('tokenInput').value.trim();
@@ -2202,6 +2485,7 @@ function showPage(name, el) {
   if (name === 'dashboard' && accounts.length > 0) renderDashboard();
   if (name === 'input') renderInputForm();
   if (name === 'bulk') renderBulkForm();
+  if (name === 'fixed') renderFixedForm();
   if (name === 'settings') {
     updateTokenDisplay();
     document.getElementById('targetInput').value = targetAmount;
