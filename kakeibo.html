@@ -2182,6 +2182,7 @@ function changeFixedYear(delta) {
   }
   fixedYear = next;
   renderFixedForm();
+  showSaveErrors('fixedErrorBox', `${fixedYear}年`, []);
 }
 
 function renderFixedForm() {
@@ -2263,8 +2264,32 @@ function renderFixedForm() {
     </div>
   `;
 
-  showSaveErrors('fixedErrorBox', `${fixedYear}年`, []);
   updateFixedTotals();
+}
+
+// 保存に失敗した分の入力値を画面に戻す。
+// 保存後は renderFixedForm() で描き直すため、失敗したマスは空欄に戻ってしまい、
+// エラー表示も一緒に消えるので、打った金額が完全に失われていた。
+function restoreFailedCells(byYm) {
+  Object.entries(byYm).forEach(([ym, list]) => {
+    list.forEach(f => {
+      const cell = document.querySelector(
+        `#page-fixed .fc-cell[data-ym="${ym}"][data-name="${f.name}"]`);
+      if (!cell) return;
+      const raw = f.amount === 0 ? '' : String(f.amount);
+      cell.dataset.raw = raw;
+      cell.value = raw === '' ? '' : Number(raw).toLocaleString('ja-JP');
+      cell.classList.toggle('has-value', raw !== '');
+      cell.classList.toggle('dirty', raw !== (cell.dataset.orig || ''));
+    });
+  });
+  updateFixedTotals();
+}
+
+// 失敗した年月×項目を、エラー表示用の一覧に均す
+function flattenFixedFailures(byYm) {
+  return Object.entries(byYm).flatMap(([ym, list]) =>
+    list.map(f => ({ name: `${ym} ${fixedCostLabel(f.name)}`, message: '保存に失敗しました' })));
 }
 
 function onFixedCellInput(el) {
@@ -2373,14 +2398,18 @@ async function saveFixedCosts() {
   } else {
     pendingRetry.fixed = failedByYm;
     showToast(`⚠️ ${ok}件成功、${failedCount}件失敗`, 'error');
-    // 失敗表示は年月をまたぐため、口座名に年月を添えて出す
-    const flat = Object.entries(failedByYm).flatMap(([ym, list]) =>
-      list.map(f => ({ name: `${ym} ${fixedCostLabel(f.name)}`, message: '保存に失敗しました' })));
-    showSaveErrors('fixedErrorBox', `${fixedYear}年`, flat, 'retryFixedSave()');
   }
 
   await loadAll();
   renderFixedForm();
+
+  // 描き直したあとに出すこと。renderFixedForm() より先に出すと消えてしまう
+  if (failedCount > 0) {
+    restoreFailedCells(failedByYm);
+    // 失敗表示は年月をまたぐため、口座名に年月を添えて出す
+    showSaveErrors('fixedErrorBox', `${fixedYear}年`,
+      flattenFixedFailures(failedByYm), 'retryFixedSave()');
+  }
 }
 
 async function retryFixedSave() {
@@ -2409,13 +2438,16 @@ async function retryFixedSave() {
   } else {
     pendingRetry.fixed = stillFailed;
     showToast(`⚠️ ${ok}件成功、${failedCount}件がまだ失敗しています`, 'error');
-    const flat = Object.entries(stillFailed).flatMap(([ym, list]) =>
-      list.map(f => ({ name: `${ym} ${fixedCostLabel(f.name)}`, message: '保存に失敗しました' })));
-    showSaveErrors('fixedErrorBox', `${fixedYear}年`, flat, 'retryFixedSave()');
   }
 
   await loadAll();
   renderFixedForm();
+
+  if (failedCount > 0) {
+    restoreFailedCells(stillFailed);
+    showSaveErrors('fixedErrorBox', `${fixedYear}年`,
+      flattenFixedFailures(stillFailed), 'retryFixedSave()');
+  }
 }
 
 // ===== 設定 =====
