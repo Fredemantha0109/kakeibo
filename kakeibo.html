@@ -395,6 +395,21 @@
 
   .fc-body[hidden] { display: none; }
 
+  /* 固定費の行に出す「直近の記録」バッジ。読み取り専用（プレフィルではない） */
+  .fc-last {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--text2);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+  }
+
+  .fc-last.fc-none { color: var(--text3); }
+
   /* ダッシュボードの固定費カード */
   .fc-note {
     font-size: 12px;
@@ -900,7 +915,8 @@ function renderBulkForm() {
     const inputClass = `bulk-input amount-input${isCof ? ' cof' : isCif ? ' cif' : isFixed ? ' fixedcost' : ''}`;
     return `
       <div class="input-row">
-        <div class="input-name">${isFixed ? fixedCostLabel(acc.name) : acc.name}</div>
+        <div class="input-name">${isFixed ? fixedCostLabel(acc.name) : acc.name}${
+          isFixed ? fixedCostLastBadge(acc.name, bulkMonth) : ''}</div>
         <div class="input-type">${typeLabel(acc)}</div>
         <input type="text" inputmode="numeric" class="${inputClass}"
           data-name="${acc.name}"
@@ -929,7 +945,7 @@ function renderBulkForm() {
   document.getElementById('bulkContent').innerHTML =
     renderSection('Yuichiro', yuiAccs, 'dot-yuichiro') +
     renderSection('Yoko', yokoAccs, 'dot-yoko') +
-    renderFixedCostSection('bulk', fixedAccs, monthBalances, renderRow);
+    renderFixedCostSection('bulk', fixedAccs, monthBalances, renderRow, bulkMonth);
 
   updateBulkTotal();
 }
@@ -1773,7 +1789,8 @@ function renderInputForm() {
     else if (isFixed) inputClass += ' fixedcost';
     const badge       = isPrefilled
       ? `<span class="prefill-badge" data-prefill-badge="${acc.name}">${prefillMonth}のまま</span>`
-      : '';
+      // 固定費は直近の記録を読み取り専用で出す（入力欄には入れない）
+      : (isFixed ? fixedCostLastBadge(acc.name, currentMonth) : '');
 
     return `
       <div class="input-row">
@@ -1807,22 +1824,39 @@ function renderInputForm() {
   document.getElementById('inputContent').innerHTML =
     renderSection('Yuichiro', yuiAccs, 'dot-yuichiro') +
     renderSection('Yoko', yokoAccs, 'dot-yoko') +
-    renderFixedCostSection('input', fixedAccs, monthBalances, renderRow);
+    renderFixedCostSection('input', fixedAccs, monthBalances, renderRow, currentMonth);
 
   updateTotal();
 }
 
 // 入力画面ごとの固定費セクションの開閉状態。再描画をまたいで保持する（初期は閉じる）
+// 固定費の「直近の記録」を返す（表示中の月は除く）。無ければ null。
+function lastFixedCostRecord(name, excludeYm) {
+  const months = Object.keys(allBalances).filter(ym => ym !== excludeYm).sort();
+  for (let i = months.length - 1; i >= 0; i--) {
+    const amt = allBalances[months[i]]?.[name]?.amount;
+    if (amt) return { ym: months[i], amount: amt };
+  }
+  return null;
+}
+
+// 固定費の行に付ける「直近 2026-07 ¥100,000」バッジ
+function fixedCostLastBadge(name, excludeYm) {
+  const last = lastFixedCostRecord(name, excludeYm);
+  return last
+    ? `<span class="fc-last">直近 ${last.ym} ${fmtYen(last.amount)}</span>`
+    : `<span class="fc-last fc-none">記録なし</span>`;
+}
+
 const fixedCostOpen = { input: false, bulk: false };
 
 // 固定費の折りたたみセクション。scope は 'input' | 'bulk'。
-function renderFixedCostSection(scope, accs, monthBalances, renderRow) {
+function renderFixedCostSection(scope, accs, monthBalances, renderRow, ym) {
   if (accs.length === 0) return '';
   const open = fixedCostOpen[scope];
   const entered = accs.filter(a => monthBalances[a.name]?.amount != null).length;
-  const hint = entered > 0
-    ? `${entered}件 入力済み`
-    : `${accs.length}項目・支払った月だけ入力`;
+  const hint = `<strong>${ym}</strong> として記録`
+    + (entered > 0 ? ` ・ ${entered}件 入力済み` : ' ・ 支払った月だけ入力');
   return `
     <div class="owner-section">
       <div class="owner-label fc-label ${open ? 'open' : ''}"
@@ -2161,6 +2195,11 @@ function showPage(name, el) {
   // スマホ bottom tab
   if (el) el.classList.add('active');
 
+  // タブを開いた時点の allBalances で描き直す。
+  // ダッシュボードだけ再描画していなかったため、保存後にタブを切り替えても
+  // 古い数字が残り、ブラウザを更新しないと反映されなかった。API呼び出しは増えない。
+  // 未読み込み（トークン未設定・接続エラー）のときは案内表示を上書きしないよう再描画しない
+  if (name === 'dashboard' && accounts.length > 0) renderDashboard();
   if (name === 'input') renderInputForm();
   if (name === 'bulk') renderBulkForm();
   if (name === 'settings') {
