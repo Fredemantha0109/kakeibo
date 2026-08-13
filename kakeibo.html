@@ -1226,6 +1226,9 @@ async function loadAll() {
       allBalances[ym][name] = { amount, pageId };
     });
 
+    // 書き込み直後で索引が追いついていない分を重ねる（重複レコード防止）
+    applyRecentWrites();
+
     setNavStatus('接続済み', true);
     renderDashboard();
     renderInputForm();
@@ -1982,7 +1985,9 @@ function changeDashMonth(delta) {
 // 失敗した入力を画面ごとに保持し、「失敗分だけ再保存」できるようにする
 const pendingRetry = { input: null, bulk: null, fixed: null };
 
-// 1件分の書き込み。失敗したら指数バックオフで最大3回まで再試行する
+// 1件分の書き込み。失敗したら指数バックオフで最大3回まで再試行する。
+// 戻り値は { err, pageId }。新規作成した場合は作られたページのIDを返す
+// （直後の再編集がPATCHになるようにするため。POSTを繰り返すと重複レコードになる）。
 async function writeBalance(ym, name, amount, existingPageId) {
   let lastErr = null;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -1991,25 +1996,53 @@ async function writeBalance(ym, name, amount, existingPageId) {
         await notionFetch(`/pages/${existingPageId}`, 'PATCH', {
           properties: { '残高': { number: amount } }
         });
-      } else {
-        await notionFetch('/pages', 'POST', {
-          parent: { database_id: DB_IDS.balances },
-          properties: {
-            '名前': { title: [{ text: { content: `${ym}_${name}` } }] },
-            '年月': { rich_text: [{ text: { content: ym } }] },
-            '口座名': { rich_text: [{ text: { content: name } }] },
-            '残高': { number: amount }
-          }
-        });
+        return { err: null, pageId: existingPageId };
       }
-      return null; // 成功
+      const page = await notionFetch('/pages', 'POST', {
+        parent: { database_id: DB_IDS.balances },
+        properties: {
+          '名前': { title: [{ text: { content: `${ym}_${name}` } }] },
+          '年月': { rich_text: [{ text: { content: ym } }] },
+          '口座名': { rich_text: [{ text: { content: name } }] },
+          '残高': { number: amount }
+        }
+      });
+      return { err: null, pageId: page?.id || null };
     } catch (e) {
       lastErr = e;
       // レート制限（429）や一時的なエラーを想定：600ms → 1200ms と待って再試行
       if (attempt < 2) await sleep(600 * Math.pow(2, attempt));
     }
   }
-  return lastErr;
+  return { err: lastErr, pageId: null };
+}
+
+// 書き込み直後のNotionのクエリ索引ずれ対策。
+// POSTしたページが直後の queryDB に含まれないことがあり、そのまま描き直すと
+// 「保存したのに消えた」状態になる。ユーザーが入れ直すと重複レコードができてしまう。
+// 保存できた内容をここに控えて loadAll() の最後に重ねることで、索引が追いつくまでの間も
+// 画面と pageId を正しく保つ。Notion側の値が一致したらその分は捨てる。
+const recentWrites = new Map(); // 'ym|口座名' -> { ym, name, amount, pageId, tries }
+
+function rememberWrite(ym, name, amount, pageId) {
+  recentWrites.set(`${ym}|${name}`, { ym, name, amount, pageId, tries: 0 });
+}
+
+function applyRecentWrites() {
+  recentWrites.forEach((w, key) => {
+    const cur = allBalances[w.ym]?.[w.name];
+    if (cur && cur.amount === w.amount) {
+      recentWrites.delete(key); // 索引が追いついた
+      return;
+    }
+    // 何度読んでも一致しないものは、こちらの控えが誤りとみなして捨てる
+    if (++w.tries > 5) {
+      recentWrites.delete(key);
+      return;
+    }
+    if (!allBalances[w.ym]) allBalances[w.ym] = {};
+    allBalances[w.ym][w.name] = { amount: w.amount, pageId: cur?.pageId || w.pageId };
+  });
 }
 
 // entries を順番に保存。戻り値は { ok, failed[] }
@@ -2019,9 +2052,13 @@ async function saveEntries(ym, entries, onProgress) {
   let ok = 0;
   for (let i = 0; i < entries.length; i++) {
     const { name, amount } = entries[i];
-    const err = await writeBalance(ym, name, amount, monthBalances[name]?.pageId);
+    const known = allBalances[ym]?.[name]?.pageId || monthBalances[name]?.pageId;
+    const { err, pageId } = await writeBalance(ym, name, amount, known);
     if (err) failed.push({ name, amount, message: err.message || '不明なエラー' });
-    else ok++;
+    else {
+      ok++;
+      rememberWrite(ym, name, amount, pageId);
+    }
     if (onProgress) onProgress(i + 1, entries.length);
     // レート制限対策：1秒3リクエストを超えないよう300ms待機
     if (i < entries.length - 1) await sleep(300);
