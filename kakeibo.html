@@ -240,6 +240,7 @@
   }
   .amount-input.cof { color: var(--red); }
   .amount-input.cif { color: var(--green); }
+  .amount-input.fixedcost { color: var(--yellow); }
   .prefill-badge {
     display: inline-block;
     margin-left: 8px;
@@ -363,6 +364,108 @@
     margin-bottom: 12px;
     padding-bottom: 8px;
     border-bottom: 1px solid var(--border);
+  }
+
+  /* 固定費セクション（年1回程度しか触らないのでデフォルトで折りたたむ） */
+  .fc-label {
+    cursor: pointer;
+    user-select: none;
+    justify-content: flex-start;
+  }
+
+  .fc-label:hover { color: var(--text); }
+
+  .fc-caret {
+    display: inline-block;
+    width: 10px;
+    font-size: 10px;
+    transition: transform 0.15s;
+  }
+
+  .fc-label.open .fc-caret { transform: rotate(90deg); }
+
+  .fc-hint {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text3);
+  }
+
+  .fc-body[hidden] { display: none; }
+
+  /* ダッシュボードの固定費カード */
+  .fc-note {
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--text2);
+    margin-bottom: 16px;
+  }
+
+  .fc-note strong { color: var(--text); font-weight: 500; }
+
+  .fc-grid {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+
+  .fc-chart { height: 260px; }
+
+  .fc-table-wrap {
+    margin-top: 20px;
+    overflow-x: auto;
+  }
+
+  .fc-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .fc-table th,
+  .fc-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(46,50,80,0.5);
+    white-space: nowrap;
+  }
+
+  .fc-table th {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text3);
+    text-align: right;
+    letter-spacing: 0.04em;
+  }
+
+  .fc-table th.fc-item { text-align: left; }
+
+  .fc-table td.fc-item {
+    text-align: left;
+    color: var(--text);
+  }
+
+  .fc-table td.fc-num {
+    text-align: right;
+    font-family: var(--mono);
+    color: var(--text);
+  }
+
+  .fc-table td.fc-zero { color: var(--text3); }
+
+  .fc-table tr.fc-total td {
+    border-top: 1px solid var(--border);
+    border-bottom: none;
+    font-weight: 600;
+    color: var(--yellow);
+  }
+
+  .fc-table tr.fc-total td.fc-num { color: var(--yellow); }
+
+  @media (max-width: 720px) {
+    .fc-grid { grid-template-columns: 1fr; }
   }
 
   .input-row {
@@ -781,50 +884,59 @@ function renderBulkForm() {
   document.getElementById('bulkMonthLabel').textContent = bulkMonth;
   const monthBalances = allBalances[bulkMonth] || {};
 
-  const yuiAccs = accounts.filter(a => a.owner === 'Yuichiro');
-  const yokoAccs = accounts.filter(a => a.owner === 'Yoko');
+  // 固定費はオーナー別セクションから外し、専用の折りたたみセクションにまとめる
+  const assetAccs = accounts.filter(a => !isFixedCostAccount(a));
+  const fixedAccs = accounts.filter(a => isFixedCostAccount(a));
+  const yuiAccs = assetAccs.filter(a => a.owner === 'Yuichiro');
+  const yokoAccs = assetAccs.filter(a => a.owner === 'Yoko');
+
+  const renderRow = (acc) => {
+    const raw = monthBalances[acc.name]?.amount;
+    const value = raw != null ? raw : '';
+    const displayVal = value !== '' ? Number(value).toLocaleString('ja-JP') : '';
+    const isCof = isCofAccount(acc);
+    const isCif = isCifAccount(acc);
+    const isFixed = isFixedCostAccount(acc);
+    const inputClass = `bulk-input amount-input${isCof ? ' cof' : isCif ? ' cif' : isFixed ? ' fixedcost' : ''}`;
+    return `
+      <div class="input-row">
+        <div class="input-name">${isFixed ? fixedCostLabel(acc.name) : acc.name}</div>
+        <div class="input-type">${typeLabel(acc)}</div>
+        <input type="text" inputmode="numeric" class="${inputClass}"
+          data-name="${acc.name}"
+          data-raw="${value}"
+          ${isCof ? 'data-cof="1"' : ''}
+          ${isFixed ? 'data-fixedcost="1"' : ''}
+          value="${displayVal}"
+          placeholder="0"
+          oninput="onAmountInput(this); updateBulkTotal()"
+          onfocus="onAmountFocus(this)"
+          onblur="onAmountBlur(this)"
+          onkeydown="onBulkKeydown(event, this)">
+      </div>
+    `;
+  };
 
   const renderSection = (owner, accs, dotClass) => `
     <div class="owner-section">
       <div class="owner-label">
         <span class="owner-dot ${dotClass}"></span>${owner}
       </div>
-      ${accs.map(acc => {
-        const raw = monthBalances[acc.name]?.amount;
-        const value = raw != null ? raw : '';
-        const displayVal = value !== '' ? Number(value).toLocaleString('ja-JP') : '';
-        const isCof = isCofAccount(acc);
-        const isCif = isCifAccount(acc);
-        const inputClass = `bulk-input amount-input${isCof ? ' cof' : isCif ? ' cif' : ''}`;
-        return `
-          <div class="input-row">
-            <div class="input-name">${acc.name}</div>
-            <div class="input-type">${typeLabel(acc)}</div>
-            <input type="text" inputmode="numeric" class="${inputClass}"
-              data-name="${acc.name}"
-              data-raw="${value}"
-              ${isCof ? 'data-cof="1"' : ''}
-              value="${displayVal}"
-              placeholder="0"
-              oninput="onAmountInput(this); updateBulkTotal()"
-              onfocus="onAmountFocus(this)"
-              onblur="onAmountBlur(this)"
-              onkeydown="onBulkKeydown(event, this)">
-          </div>
-        `;
-      }).join('')}
+      ${accs.map(renderRow).join('')}
     </div>
   `;
 
   document.getElementById('bulkContent').innerHTML =
     renderSection('Yuichiro', yuiAccs, 'dot-yuichiro') +
-    renderSection('Yoko', yokoAccs, 'dot-yoko');
+    renderSection('Yoko', yokoAccs, 'dot-yoko') +
+    renderFixedCostSection('bulk', fixedAccs, monthBalances, renderRow);
 
   updateBulkTotal();
 }
 
 function updateBulkTotal() {
-  const inputs = document.querySelectorAll('.bulk-input');
+  // 固定費は資産ではないので合計に含めない
+  const inputs = document.querySelectorAll('.bulk-input:not([data-fixedcost])');
   let total = 0;
   inputs.forEach(inp => { total += Number(inp.dataset.raw) || 0; });
   document.getElementById('bulkTotal').textContent = fmtYen(total);
@@ -840,7 +952,9 @@ function changeBulkMonth(delta) {
 function onBulkKeydown(e, el) {
   if (e.key === 'Enter') {
     e.preventDefault();
-    const inputs = Array.from(document.querySelectorAll('.bulk-input'));
+    // 折りたたまれている固定費欄はフォーカスできないので移動先から外す
+    const inputs = Array.from(document.querySelectorAll('.bulk-input'))
+      .filter(inp => inp.offsetParent !== null || inp === el);
     const idx = inputs.indexOf(el);
     if (idx < inputs.length - 1) inputs[idx + 1].focus();
     else document.getElementById('bulkSaveBtn').focus();
@@ -927,6 +1041,7 @@ let accounts = [];
 let allBalances = {};
 let trendChartInstance = null;
 let typeTrendChartInstance = null;
+let fixedCostChartInstance = null;
 let targetAmount = 30000000;
 // トークン取得（localStorage → sessionStorage の順で試みる）
 function getStoredToken() {
@@ -1033,9 +1148,11 @@ async function loadAll() {
 
 // 指定月の残高を「口座マスタの有効口座のみ」で合計する。
 // カード・グラフの両方がこの関数を使うことで集計対象を一致させる。
+// 資産種別「固定費」は資産ではない支払い記録なので合計に含めない（含めると総資産が狂う）。
 function sumActiveAccounts(monthBalances) {
   if (!monthBalances) return 0;
-  return accounts.reduce((s, acc) => s + (monthBalances[acc.name]?.amount || 0), 0);
+  return accounts.reduce((s, acc) =>
+    isCountedInTotal(acc) ? s + (monthBalances[acc.name]?.amount || 0) : s, 0);
 }
 
 
@@ -1074,8 +1191,19 @@ function isCofAccount(acc) { return typeLabel(acc) === COF_TYPE; }
 const CIF_TYPE = '見込CIF';
 function isCifAccount(acc) { return typeLabel(acc) === CIF_TYPE; }
 
-// 資産種別の推移グラフから除外する種別（カード集計には含める）
-const EXCLUDED_TREND_TYPES = [COF_TYPE, CIF_TYPE];
+// 年次固定費（国民年金・住民税・自動車税など）。支払額をプラスで記録する。
+// 資産でも見込みでもないので、総資産・オーナー別・種別内訳のすべての集計から除外する。
+// 記録先は月次残高DBのまま（専用DBは作らない）。年月×口座名の汎用スキーマにそのまま乗る。
+const FIXED_COST_TYPE = '固定費';
+function isFixedCostAccount(acc) { return typeLabel(acc) === FIXED_COST_TYPE; }
+
+// 総資産・オーナー別内訳・資産種別内訳・総資産推移グラフから除外する種別。
+// 見込COF/CIFは「総資産に織り込む」ものなので除外しない。固定費だけがここに入る。
+const EXCLUDED_TOTAL_TYPES = [FIXED_COST_TYPE];
+function isCountedInTotal(acc) { return !EXCLUDED_TOTAL_TYPES.includes(typeLabel(acc)); }
+
+// 資産種別の推移グラフから除外する種別（見込COF/CIFはカード集計には含める）
+const EXCLUDED_TREND_TYPES = [COF_TYPE, CIF_TYPE, FIXED_COST_TYPE];
 
 // 全月・全種別の推移データを返す。
 // 戻り値: { months: ['2026-01',...], types: ['預金',...], series: { '預金': [数値,...] } }
@@ -1107,6 +1235,175 @@ function buildTypeSeries(months) {
   return { months, types, series };
 }
 
+// ===== 固定費（年次） =====
+
+// 口座名の '固定費_' 接頭辞は表示では落とす（Notion側の検索性のためだけに付けている）
+function fixedCostLabel(name) {
+  return name.startsWith(`${FIXED_COST_TYPE}_`) ? name.slice(FIXED_COST_TYPE.length + 1) : name;
+}
+
+// 固定費の年次集計。暦年（1月〜12月）で区切る。
+// 戻り値: null（固定費口座が未登録） / { years, items, yearTotals, hasData }
+function buildFixedCostSeries() {
+  const fixedAccs = accounts.filter(isFixedCostAccount);
+  if (fixedAccs.length === 0) return null;
+
+  const yearSet = new Set();
+  const byItem = {};
+  fixedAccs.forEach(acc => { byItem[acc.name] = {}; });
+
+  Object.keys(allBalances).forEach(ym => {
+    const year = ym.slice(0, 4);
+    if (!/^\d{4}$/.test(year)) return;
+    const mb = allBalances[ym] || {};
+    fixedAccs.forEach(acc => {
+      const amt = mb[acc.name]?.amount;
+      if (!amt) return;
+      byItem[acc.name][year] = (byItem[acc.name][year] || 0) + amt;
+      yearSet.add(year);
+    });
+  });
+
+  const years = [...yearSet].sort();
+  if (years.length === 0) return { years: [], items: [], yearTotals: {}, hasData: false };
+
+  const lastYear = years[years.length - 1];
+  const items = fixedAccs
+    .map(acc => {
+      const byYear = byItem[acc.name];
+      const total = years.reduce((s, y) => s + (byYear[y] || 0), 0);
+      return { name: acc.name, label: fixedCostLabel(acc.name), byYear, total };
+    })
+    .filter(it => it.total !== 0)
+    .sort((a, b) => (b.byYear[lastYear] || 0) - (a.byYear[lastYear] || 0) || b.total - a.total);
+
+  const yearTotals = {};
+  years.forEach(y => { yearTotals[y] = items.reduce((s, it) => s + (it.byYear[y] || 0), 0); });
+
+  return { years, items, yearTotals, hasData: true };
+}
+
+// ダッシュボード下部の固定費カードのHTML。fc が null なら空文字。
+function renderFixedCostCard(fc) {
+  if (!fc) return '';
+
+  if (!fc.hasData) {
+    return `
+      <div class="card">
+        <div class="card-title">固定費（年次）</div>
+        <div class="fc-note">
+          固定費の口座は登録済みですが、まだ金額の記録がありません。
+          月次入力画面の「固定費（年次）」セクションから、支払った月に金額を入れてください。
+        </div>
+      </div>
+    `;
+  }
+
+  const { years, items, yearTotals } = fc;
+
+  const totalRows = years.map((y, i) => {
+    const prevY = i > 0 ? years[i - 1] : null;
+    const delta = prevY !== null
+      ? renderDelta(yearTotals[y], yearTotals[prevY], true)
+      : '<span class="delta delta-flat">前年データなし</span>';
+    return `
+      <div class="owner-row">
+        <div class="owner-name">${y}年</div>
+        <div style="text-align:right;">
+          <div class="owner-amount">${fmtYen(yearTotals[y])}</div>
+          <div>${delta}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const head = years.map(y => `<th>${y}年</th>`).join('');
+  const body = items.map(it => `
+    <tr>
+      <td class="fc-item">${escapeHtml(it.label)}</td>
+      ${years.map(y => `<td class="fc-num${it.byYear[y] ? '' : ' fc-zero'}">${
+        it.byYear[y] ? fmtYen(it.byYear[y]) : '—'
+      }</td>`).join('')}
+    </tr>
+  `).join('');
+  const foot = `
+    <tr class="fc-total">
+      <td class="fc-item">合計</td>
+      ${years.map(y => `<td class="fc-num">${fmtYen(yearTotals[y])}</td>`).join('')}
+    </tr>
+  `;
+
+  return `
+    <div class="card">
+      <div class="card-title">固定費（年次）</div>
+      <div class="fc-note">
+        暦年（1月〜12月）で集計しています。国民年金・住民税・自動車税などの支払額の記録で、
+        資産ではないため<strong>総資産・オーナー別内訳・資産種別内訳・各グラフには含めていません</strong>。
+        月送りの影響を受けず、常に全期間を表示します。
+      </div>
+      <div class="fc-grid">
+        <div>
+          ${totalRows}
+        </div>
+        <div class="chart-container fc-chart">
+          <canvas id="fixedCostChart"></canvas>
+        </div>
+      </div>
+      <div class="fc-table-wrap">
+        <table class="fc-table">
+          <thead><tr><th class="fc-item">項目</th>${head}</tr></thead>
+          <tbody>${body}${foot}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// 項目別×年の積み上げ棒グラフ。
+function drawFixedCostChart(fc) {
+  if (!fc || !fc.hasData) return;
+  const el = document.getElementById('fixedCostChart');
+  if (!el) return;
+
+  fixedCostChartInstance = new Chart(el.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: fc.years.map(y => `${y}年`),
+      datasets: fc.items.map((it, i) => ({
+        label: it.label,
+        data: fc.years.map(y => it.byYear[y] || 0),
+        backgroundColor: typeColor(i),
+        borderWidth: 0
+      }))
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#8b92b8', font: { size: 11 }, boxWidth: 12 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${fmtYen(ctx.raw)}`,
+            footer: items => {
+              const sum = items.reduce((s, it) => s + (it.raw || 0), 0);
+              return `合計: ${fmtYen(sum)}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { stacked: true, ticks: { color: '#5a6190' }, grid: { display: false } },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          ticks: { color: '#5a6190', callback: v => fmtYenShort(v) },
+          grid: { color: 'rgba(46,50,80,0.5)' }
+        }
+      }
+    }
+  });
+}
+
 function renderDashboard() {
   // dashboardMonth が存在するデータの中にあるか確認
   const availableMonths = Object.keys(allBalances).sort();
@@ -1125,6 +1422,8 @@ function renderDashboard() {
   let prevTotal = 0, prevYuiTotal = 0, prevYokoTotal = 0;
 
   accounts.forEach(acc => {
+    // 固定費は資産ではないため、総資産にもオーナー別内訳にも入れない
+    if (!isCountedInTotal(acc)) return;
     const amt = monthBalances[acc.name]?.amount || 0;
     total += amt;
     if (acc.owner === 'Yuichiro') yuiTotal += amt;
@@ -1149,6 +1448,9 @@ function renderDashboard() {
   // （旧 (Yoko) 表記の残骸など）が混ざり、カードの数字とグラフがズレるため。
   const months = availableMonths;
   const chartData = months.map(ym => sumActiveAccounts(allBalances[ym]));
+
+  // 固定費は年次集計。月送りに追従させず、常に全期間を出す
+  const fixedCost = buildFixedCostSeries();
 
   // マスタに存在しない口座名のレコードを検出（データ不整合の可視化）
   const activeNames = new Set(accounts.map(a => a.name));
@@ -1242,6 +1544,8 @@ function renderDashboard() {
         <canvas id="typeTrendChart"></canvas>
       </div>
     </div>
+
+    ${renderFixedCostCard(fixedCost)}
   `;
 
   // 古いcanvasごと差し替わる前に、前回のChartインスタンスを破棄する
@@ -1249,8 +1553,13 @@ function renderDashboard() {
   trendChartInstance = null;
   typeTrendChartInstance?.destroy();
   typeTrendChartInstance = null;
+  fixedCostChartInstance?.destroy();
+  fixedCostChartInstance = null;
 
   document.getElementById('dashboardContent').innerHTML = html;
+
+  // 固定費は年次集計なので、ダッシュボードの月送りとは独立して全期間を描く
+  drawFixedCostChart(fixedCost);
 
   // グラフ描画
   if (months.length > 0) {
@@ -1396,6 +1705,8 @@ function renderTypeSummary(monthBalances, prevBalances, hasPrev) {
   const types = {};
   const prevTypes = {};
   accounts.forEach(acc => {
+    // 固定費は資産種別内訳にも出さない（総資産と内訳の合計を一致させるため）
+    if (!isCountedInTotal(acc)) return;
     const t = typeLabel(acc);
     const amt = monthBalances[acc.name]?.amount || 0;
     if (!types[t]) types[t] = 0;
@@ -1438,62 +1749,106 @@ function renderInputForm() {
   const prefillMonth = sortedMonths.filter(ym => ym < currentMonth).pop() || '';
   const prefillBalances = prefillMonth ? (allBalances[prefillMonth] || {}) : {};
 
-  const yuiAccs = accounts.filter(a => a.owner === 'Yuichiro');
-  const yokoAccs = accounts.filter(a => a.owner === 'Yoko');
+  // 固定費はオーナー別セクションから外し、専用の折りたたみセクションにまとめる
+  const assetAccs = accounts.filter(a => !isFixedCostAccount(a));
+  const fixedAccs = accounts.filter(a => isFixedCostAccount(a));
+  const yuiAccs = assetAccs.filter(a => a.owner === 'Yuichiro');
+  const yokoAccs = assetAccs.filter(a => a.owner === 'Yoko');
+
+  const renderRow = (acc) => {
+    const current = monthBalances[acc.name]?.amount;
+    const prefill  = prefillBalances[acc.name]?.amount;
+
+    // 固定費は「先月と同じ額を毎月払う」ものではないのでプレフィルしない。
+    const isFixed = isFixedCostAccount(acc);
+    // 優先順位: 当月レコードあり → 確定値 / 前月レコードあり → プレフィル / どちらも無し → 空
+    const isPrefilled = !isFixed && current == null && prefill != null;
+    const value       = current != null ? current : (isPrefilled ? prefill : '');
+    const displayVal  = value !== '' ? Number(value).toLocaleString('ja-JP') : '';
+    const isCof = isCofAccount(acc);
+    const isCif = isCifAccount(acc);
+    let inputClass = isPrefilled ? 'amount-input prefilled' : 'amount-input';
+    if (isCof) inputClass += ' cof';
+    else if (isCif) inputClass += ' cif';
+    else if (isFixed) inputClass += ' fixedcost';
+    const badge       = isPrefilled
+      ? `<span class="prefill-badge" data-prefill-badge="${acc.name}">${prefillMonth}のまま</span>`
+      : '';
+
+    return `
+      <div class="input-row">
+        <div class="input-name">${isFixed ? fixedCostLabel(acc.name) : acc.name}${badge}</div>
+        <div class="input-type">${typeLabel(acc)}</div>
+        <input type="text" inputmode="numeric" class="${inputClass}"
+          data-name="${acc.name}"
+          data-raw="${value}"
+          ${isPrefilled ? 'data-prefilled="1"' : ''}
+          ${isCof ? 'data-cof="1"' : ''}
+          ${isFixed ? 'data-fixedcost="1"' : ''}
+          value="${displayVal}"
+          placeholder="0"
+          oninput="onAmountInput(this)"
+          onfocus="onAmountFocus(this)"
+          onblur="onAmountBlur(this)"
+          onkeydown="onAmountKeydown(event, this)">
+      </div>
+    `;
+  };
 
   const renderSection = (owner, accs, dotClass) => `
     <div class="owner-section">
       <div class="owner-label">
         <span class="owner-dot ${dotClass}"></span>${owner}
       </div>
-      ${accs.map(acc => {
-        const current = monthBalances[acc.name]?.amount;
-        const prefill  = prefillBalances[acc.name]?.amount;
-
-        // 優先順位: 当月レコードあり → 確定値 / 前月レコードあり → プレフィル / どちらも無し → 空
-        const isPrefilled = current == null && prefill != null;
-        const value       = current != null ? current : (prefill != null ? prefill : '');
-        const displayVal  = value !== '' ? Number(value).toLocaleString('ja-JP') : '';
-        const isCof = isCofAccount(acc);
-        const isCif = isCifAccount(acc);
-        let inputClass = isPrefilled ? 'amount-input prefilled' : 'amount-input';
-        if (isCof) inputClass += ' cof';
-        else if (isCif) inputClass += ' cif';
-        const badge       = isPrefilled
-          ? `<span class="prefill-badge" data-prefill-badge="${acc.name}">${prefillMonth}のまま</span>`
-          : '';
-
-        return `
-          <div class="input-row">
-            <div class="input-name">${acc.name}${badge}</div>
-            <div class="input-type">${typeLabel(acc)}</div>
-            <input type="text" inputmode="numeric" class="${inputClass}"
-              data-name="${acc.name}"
-              data-raw="${value}"
-              ${isPrefilled ? 'data-prefilled="1"' : ''}
-              ${isCof ? 'data-cof="1"' : ''}
-              value="${displayVal}"
-              placeholder="0"
-              oninput="onAmountInput(this)"
-              onfocus="onAmountFocus(this)"
-              onblur="onAmountBlur(this)"
-              onkeydown="onAmountKeydown(event, this)">
-          </div>
-        `;
-      }).join('')}
+      ${accs.map(renderRow).join('')}
     </div>
   `;
 
   document.getElementById('inputContent').innerHTML =
     renderSection('Yuichiro', yuiAccs, 'dot-yuichiro') +
-    renderSection('Yoko', yokoAccs, 'dot-yoko');
+    renderSection('Yoko', yokoAccs, 'dot-yoko') +
+    renderFixedCostSection('input', fixedAccs, monthBalances, renderRow);
 
   updateTotal();
 }
 
+// 入力画面ごとの固定費セクションの開閉状態。再描画をまたいで保持する（初期は閉じる）
+const fixedCostOpen = { input: false, bulk: false };
+
+// 固定費の折りたたみセクション。scope は 'input' | 'bulk'。
+function renderFixedCostSection(scope, accs, monthBalances, renderRow) {
+  if (accs.length === 0) return '';
+  const open = fixedCostOpen[scope];
+  const entered = accs.filter(a => monthBalances[a.name]?.amount != null).length;
+  const hint = entered > 0
+    ? `${entered}件 入力済み`
+    : `${accs.length}項目・支払った月だけ入力`;
+  return `
+    <div class="owner-section">
+      <div class="owner-label fc-label ${open ? 'open' : ''}"
+           id="fcLabel-${scope}" onclick="toggleFixedCost('${scope}')">
+        <span class="fc-caret">▶</span>${FIXED_COST_TYPE}（年次）
+        <span class="fc-hint">${hint}</span>
+      </div>
+      <div class="fc-body" id="fcBody-${scope}" ${open ? '' : 'hidden'}>
+        ${accs.map(renderRow).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function toggleFixedCost(scope) {
+  fixedCostOpen[scope] = !fixedCostOpen[scope];
+  const body = document.getElementById(`fcBody-${scope}`);
+  const label = document.getElementById(`fcLabel-${scope}`);
+  if (body) body.hidden = !fixedCostOpen[scope];
+  if (label) label.classList.toggle('open', fixedCostOpen[scope]);
+}
+
 function updateTotal() {
   // .amount-input は過去一括入力の欄にも付いているため、月次入力画面に限定する
-  const inputs = document.querySelectorAll('#page-input .amount-input');
+  // 固定費は資産ではないので画面下部の合計にも含めない（ダッシュボードの総資産と揃える）
+  const inputs = document.querySelectorAll('#page-input .amount-input:not([data-fixedcost])');
   let total = 0;
   inputs.forEach(inp => { total += Number(inp.dataset.raw) || 0; });
   document.getElementById('inputTotal').textContent = fmtYen(total);
@@ -1537,7 +1892,9 @@ function onAmountBlur(el) {
 function onAmountKeydown(e, el) {
   if (e.key === 'Enter') {
     e.preventDefault();
-    const inputs = Array.from(document.querySelectorAll('#page-input .amount-input'));
+    // 折りたたまれている固定費欄はフォーカスできないので移動先から外す
+    const inputs = Array.from(document.querySelectorAll('#page-input .amount-input'))
+      .filter(inp => inp.offsetParent !== null || inp === el);
     const idx = inputs.indexOf(el);
     if (idx < inputs.length - 1) {
       inputs[idx + 1].focus();
