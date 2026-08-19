@@ -989,7 +989,7 @@ function renderBulkForm() {
     const raw = monthBalances[acc.name]?.amount;
     const value = raw != null ? raw : '';
     const displayVal = value !== '' ? Number(value).toLocaleString('ja-JP') : '';
-    const isCof = isCofAccount(acc);
+    const isCof = isNegativeInputAccount(acc);
     const isCif = isCifAccount(acc);
     const inputClass = `bulk-input amount-input${isCof ? ' cof' : isCif ? ' cif' : ''}`;
     return `
@@ -1292,13 +1292,22 @@ function isCifAccount(acc) { return typeLabel(acc) === CIF_TYPE; }
 const FIXED_COST_TYPE = '固定費';
 function isFixedCostAccount(acc) { return typeLabel(acc) === FIXED_COST_TYPE; }
 
+// 負債（住宅ローン・自動車ローンなど）。残高はマイナスで記録する。
+// 資産ではないので総資産・オーナー別内訳・資産種別内訳・各グラフからは除外し、
+// ダッシュボード下部の専用カードだけで「負債」と「純資産」を表示する。
+const LIABILITY_TYPE = '負債';
+function isLiabilityAccount(acc) { return typeLabel(acc) === LIABILITY_TYPE; }
+
+// 入力値を必ずマイナスに寄せる口座（見込COFと負債）。プラスで打っても負になる。
+function isNegativeInputAccount(acc) { return isCofAccount(acc) || isLiabilityAccount(acc); }
+
 // 総資産・オーナー別内訳・資産種別内訳・総資産推移グラフから除外する種別。
-// 見込COF/CIFは「総資産に織り込む」ものなので除外しない。固定費だけがここに入る。
-const EXCLUDED_TOTAL_TYPES = [FIXED_COST_TYPE];
+// 見込COF/CIFは「総資産に織り込む」ものなので除外しない。固定費と負債がここに入る。
+const EXCLUDED_TOTAL_TYPES = [FIXED_COST_TYPE, LIABILITY_TYPE];
 function isCountedInTotal(acc) { return !EXCLUDED_TOTAL_TYPES.includes(typeLabel(acc)); }
 
 // 資産種別の推移グラフから除外する種別（見込COF/CIFはカード集計には含める）
-const EXCLUDED_TREND_TYPES = [COF_TYPE, CIF_TYPE, FIXED_COST_TYPE];
+const EXCLUDED_TREND_TYPES = [COF_TYPE, CIF_TYPE, FIXED_COST_TYPE, LIABILITY_TYPE];
 
 // 全月・全種別の推移データを返す。
 // 戻り値: { months: ['2026-01',...], types: ['預金',...], series: { '預金': [数値,...] } }
@@ -1640,6 +1649,8 @@ function renderDashboard() {
       </div>
     </div>
 
+    ${renderLiabilityCard(monthBalances, prevBalances, hasPrev, total, prevTotal, dashboardMonth)}
+
     ${renderFixedCostCard(fixedCost)}
   `;
 
@@ -1824,6 +1835,54 @@ function renderTypeSummary(monthBalances, prevBalances, hasPrev) {
     `).join('');
 }
 
+// 負債カード。口座マスタに資産種別「負債」が1つも無ければ何も出さない。
+// 残高はマイナスで持っているので、純資産は 総資産 + 負債合計 で求まる。
+function renderLiabilityCard(monthBalances, prevBalances, hasPrev, assetTotal, prevAssetTotal, month) {
+  const liabAccs = accounts.filter(isLiabilityAccount);
+  if (liabAccs.length === 0) return '';
+
+  const amountOf = (bal, acc) => (bal || {})[acc.name]?.amount || 0;
+  const liabTotal = liabAccs.reduce((sm, acc) => sm + amountOf(monthBalances, acc), 0);
+  const prevLiabTotal = liabAccs.reduce((sm, acc) => sm + amountOf(prevBalances, acc), 0);
+  const net = assetTotal + liabTotal;
+  const prevNet = prevAssetTotal + prevLiabTotal;
+
+  const rows = liabAccs.map(acc => `
+      <div class="owner-row">
+        <div class="owner-name">${escapeHtml(acc.name)}</div>
+        <div style="text-align:right;">
+          <div class="owner-amount">${fmtYen(amountOf(monthBalances, acc))}</div>
+          <div>${renderDelta(amountOf(monthBalances, acc), amountOf(prevBalances, acc), hasPrev)}</div>
+        </div>
+      </div>
+  `).join('');
+
+  return `
+    <div class="card">
+      <div class="card-title">負債（${month}）</div>
+      <div style="font-size:12px; color:var(--text2); margin-bottom:12px;">
+        住宅ローンなどの借入残高。<strong>総資産・オーナー別内訳・資産種別内訳・各グラフには含めていません</strong>。
+        資産の増減と借入の返済は別の話なので、ここだけで見ます。
+      </div>
+      ${rows}
+      <div class="owner-row" style="margin-top:8px; border-top:1px solid var(--border); padding-top:12px;">
+        <div class="owner-name" style="color:var(--text); font-weight:600;">負債合計</div>
+        <div style="text-align:right;">
+          <div class="owner-amount" style="color:#fb923c;">${fmtYen(liabTotal)}</div>
+          <div>${renderDelta(liabTotal, prevLiabTotal, hasPrev)}</div>
+        </div>
+      </div>
+      <div class="owner-row" style="margin-top:8px; border-top:1px solid var(--border); padding-top:12px;">
+        <div class="owner-name" style="color:var(--text); font-weight:600;">純資産（総資産 ＋ 負債）</div>
+        <div style="text-align:right;">
+          <div class="owner-amount" style="color:var(--accent);">${fmtYen(net)}</div>
+          <div>${renderDelta(net, prevNet, hasPrev)}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderDashboardEmpty() {
   document.getElementById('dashboardContent').innerHTML = `
     <div class="card" style="text-align:center; padding:60px;">
@@ -1857,7 +1916,7 @@ function renderInputForm() {
     const isPrefilled = current == null && prefill != null;
     const value       = current != null ? current : (isPrefilled ? prefill : '');
     const displayVal  = value !== '' ? Number(value).toLocaleString('ja-JP') : '';
-    const isCof = isCofAccount(acc);
+    const isCof = isNegativeInputAccount(acc);
     const isCif = isCifAccount(acc);
     let inputClass = isPrefilled ? 'amount-input prefilled' : 'amount-input';
     if (isCof) inputClass += ' cof';
