@@ -1217,6 +1217,7 @@ async function loadAll() {
 
     // 月次残高
     allBalances = {};
+    firstMonthCache = {};
     bals.forEach(p => {
       const ym = p.properties['年月']?.rich_text?.[0]?.plain_text || '';
       const name = p.properties['口座名']?.rich_text?.[0]?.plain_text || '';
@@ -1250,6 +1251,52 @@ function sumActiveAccounts(monthBalances) {
     isCountedInTotal(acc) ? s + (monthBalances[acc.name]?.amount || 0) : s, 0);
 }
 
+// その月に「集計対象の口座」のレコードが1件でもあるか。
+// 固定費・負債しか無い月（固定費バックフィルで生まれた月など）は false になる。
+// amount が 0 のレコードも「入力された0」なので true 扱いにする（存在チェックであって真偽値チェックではない）。
+function hasCountedRecord(ym) {
+  const mb = allBalances[ym];
+  if (!mb) return false;
+  return accounts.some(acc => isCountedInTotal(acc) && mb[acc.name] !== undefined);
+}
+
+// ダッシュボード・グラフ・月送りが共通で使う「データのある月」の一覧。
+// Object.keys(allBalances) をそのまま使わないこと。
+// 固定費・負債しか無い月が混ざり、総資産0円の月としてグラフに描かれる。
+function getAvailableMonths() {
+  return Object.keys(allBalances).sort().filter(hasCountedRecord);
+}
+
+// 「毎月必ず入力するはずの口座」。
+// 見込COF/CIFは予定がある月だけ入れるものなので、網羅率の分母から外す。
+// 固定費・負債は isCountedInTotal で既に除外される。
+function isMonthlyExpected(acc) {
+  return isCountedInTotal(acc) && !isCofAccount(acc) && !isCifAccount(acc);
+}
+
+// 口座ごとの初回記録月。運用を始める前の月まで「未入力」と数えないための下駄。
+let firstMonthCache = {};
+function firstMonthOf(name) {
+  if (firstMonthCache[name] !== undefined) return firstMonthCache[name];
+  let first = null;
+  Object.keys(allBalances).forEach(ym => {
+    if (allBalances[ym][name] !== undefined && (first === null || ym < first)) first = ym;
+  });
+  return firstMonthCache[name] = first;
+}
+
+// 指定月の入力網羅状況を返す。
+// 戻り値: { expected: 数, filled: 数, missing: ['口座名', ...] }
+function buildCoverage(ym) {
+  const mb = allBalances[ym] || {};
+  const expected = accounts.filter(acc => {
+    if (!isMonthlyExpected(acc)) return false;
+    const first = firstMonthOf(acc.name);
+    return first !== null && ym >= first; // YYYY-MM ゼロ埋めなので文字列比較で成立する
+  });
+  const missing = expected.filter(acc => mb[acc.name] === undefined).map(acc => acc.name);
+  return { expected: expected.length, filled: expected.length - missing.length, missing };
+}
 
 // 前月比バッジのHTMLを返す。前月データが無い場合は「前月データなし」表示。
 // hasPrev は「前月のレコードが存在するか」。存在しないのに +100% と出さないための判定。
@@ -1509,9 +1556,9 @@ function drawFixedCostChart(fc) {
 }
 
 function renderDashboard() {
-  // dashboardMonth が存在するデータの中にあるか確認
-  const availableMonths = Object.keys(allBalances).sort();
-  if (availableMonths.length > 0 && !allBalances[dashboardMonth]) {
+  // dashboardMonth が「データのある月」の中にあるか確認
+  const availableMonths = getAvailableMonths();
+  if (availableMonths.length > 0 && !availableMonths.includes(dashboardMonth)) {
     dashboardMonth = availableMonths[availableMonths.length - 1];
   }
   document.getElementById('dashMonthLabel').textContent = dashboardMonth;
@@ -1556,6 +1603,8 @@ function renderDashboard() {
   // 固定費は年次集計。月送りに追従させず、常に全期間を出す
   const fixedCost = buildFixedCostSeries();
 
+  const coverage = buildCoverage(dashboardMonth);
+
   // マスタに存在しない口座名のレコードを検出（データ不整合の可視化）
   const activeNames = new Set(accounts.map(a => a.name));
   const orphans = Object.entries(monthBalances)
@@ -1580,7 +1629,7 @@ function renderDashboard() {
           <div class="progress-fill" style="width:${rate}%"></div>
         </div>
         <div class="metric-sub">目標 ${fmtYen(targetAmount)} の ${rate.toFixed(1)}%</div>
-        <div class="metric-sub">前月比${prevMonth ? ` (${prevMonth})` : ''} ${renderDelta(total, prevTotal, hasPrev)}</div>
+        <div class="metric-sub">${prevMonth ? `${prevMonth} 比` : '前月比'} ${renderDelta(total, prevTotal, hasPrev)}</div>
         ${renderLiabilitySummary(monthBalances, prevBalances, hasPrev, total, prevTotal)}
       </div>
 
@@ -1614,6 +1663,19 @@ function renderDashboard() {
         ${renderTypeSummary(monthBalances, prevBalances, hasPrev)}
       </div>
     </div>
+
+    ${coverage.missing.length > 0 ? `
+    <div class="card warn-card">
+      <div class="card-title">⚠️ 入力されていない口座があります（${dashboardMonth}：${coverage.filled}/${coverage.expected}口座）</div>
+      <div style="font-size:13px; color:var(--text2); margin-bottom:12px;">
+        以下の口座はこの月の残高が入力されていません。合計には0円として扱われるため、
+        総資産と前月比が実態より小さく出ます。
+      </div>
+      <div style="font-size:13px; color:var(--text);">
+        ${coverage.missing.map(n => escapeHtml(n)).join(' / ')}
+      </div>
+    </div>
+    ` : ''}
 
     ${orphans.length > 0 ? `
     <div class="card warn-card">
@@ -2023,7 +2085,7 @@ function changeMonth(delta) {
 }
 
 function changeDashMonth(delta) {
-  const available = Object.keys(allBalances).sort();
+  const available = getAvailableMonths();
   if (available.length === 0) return;
   const idx = available.indexOf(dashboardMonth);
   const newIdx = idx + delta;
