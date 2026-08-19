@@ -1581,6 +1581,7 @@ function renderDashboard() {
         </div>
         <div class="metric-sub">目標 ${fmtYen(targetAmount)} の ${rate.toFixed(1)}%</div>
         <div class="metric-sub">前月比${prevMonth ? ` (${prevMonth})` : ''} ${renderDelta(total, prevTotal, hasPrev)}</div>
+        ${renderLiabilitySummary(monthBalances, prevBalances, hasPrev, total, prevTotal)}
       </div>
 
       <div class="card">
@@ -1648,8 +1649,6 @@ function renderDashboard() {
         <canvas id="typeTrendChart"></canvas>
       </div>
     </div>
-
-    ${renderLiabilityCard(monthBalances, prevBalances, hasPrev, total, prevTotal, dashboardMonth)}
 
     ${renderFixedCostCard(fixedCost)}
   `;
@@ -1837,7 +1836,10 @@ function renderTypeSummary(monthBalances, prevBalances, hasPrev) {
 
 // 負債カード。口座マスタに資産種別「負債」が1つも無ければ何も出さない。
 // 残高はマイナスで持っているので、純資産は 総資産 + 負債合計 で求まる。
-function renderLiabilityCard(monthBalances, prevBalances, hasPrev, assetTotal, prevAssetTotal, month) {
+// 総資産カードの下部に差し込む負債サマリー。
+// 口座マスタに資産種別「負債」が1つも無ければ何も出さない（既存環境の見た目を変えない）。
+// 残高はマイナスで持っているので、純資産は 総資産 + 負債合計 で求まる。
+function renderLiabilitySummary(monthBalances, prevBalances, hasPrev, assetTotal, prevAssetTotal) {
   const liabAccs = accounts.filter(isLiabilityAccount);
   if (liabAccs.length === 0) return '';
 
@@ -1847,38 +1849,32 @@ function renderLiabilityCard(monthBalances, prevBalances, hasPrev, assetTotal, p
   const net = assetTotal + liabTotal;
   const prevNet = prevAssetTotal + prevLiabTotal;
 
-  const rows = liabAccs.map(acc => `
-      <div class="owner-row">
-        <div class="owner-name">${escapeHtml(acc.name)}</div>
-        <div style="text-align:right;">
-          <div class="owner-amount">${fmtYen(amountOf(monthBalances, acc))}</div>
-          <div>${renderDelta(amountOf(monthBalances, acc), amountOf(prevBalances, acc), hasPrev)}</div>
-        </div>
+  // 負債口座が複数あるときだけ内訳を出す。1つなら合計行と重複するので出さない。
+  const detail = liabAccs.length > 1 ? liabAccs.map(acc => `
+      <div class="owner-row" style="padding:6px 0; border-bottom:none;">
+        <div class="owner-name" style="font-size:12px; padding-left:12px;">${escapeHtml(acc.name)}</div>
+        <div class="owner-amount" style="font-size:13px; color:var(--text2);">${fmtYen(amountOf(monthBalances, acc))}</div>
       </div>
-  `).join('');
+  `).join('') : '';
 
   return `
-    <div class="card">
-      <div class="card-title">負債（${month}）</div>
-      <div style="font-size:12px; color:var(--text2); margin-bottom:12px;">
-        住宅ローンなどの借入残高。<strong>総資産・オーナー別内訳・資産種別内訳・各グラフには含めていません</strong>。
-        資産の増減と借入の返済は別の話なので、ここだけで見ます。
-      </div>
-      ${rows}
-      <div class="owner-row" style="margin-top:8px; border-top:1px solid var(--border); padding-top:12px;">
-        <div class="owner-name" style="color:var(--text); font-weight:600;">負債合計</div>
+    <div style="margin-top:18px; border-top:1px solid var(--border); padding-top:6px;">
+      <div class="owner-row" style="border-bottom:none;">
+        <div class="owner-name">負債</div>
         <div style="text-align:right;">
           <div class="owner-amount" style="color:#fb923c;">${fmtYen(liabTotal)}</div>
           <div>${renderDelta(liabTotal, prevLiabTotal, hasPrev)}</div>
         </div>
       </div>
-      <div class="owner-row" style="margin-top:8px; border-top:1px solid var(--border); padding-top:12px;">
-        <div class="owner-name" style="color:var(--text); font-weight:600;">純資産（総資産 ＋ 負債）</div>
+      ${detail}
+      <div class="owner-row" style="border-bottom:none; border-top:1px solid var(--border);">
+        <div class="owner-name" style="color:var(--text); font-weight:600;">純資産</div>
         <div style="text-align:right;">
           <div class="owner-amount" style="color:var(--accent);">${fmtYen(net)}</div>
           <div>${renderDelta(net, prevNet, hasPrev)}</div>
         </div>
       </div>
+      <div class="metric-sub">総資産・オーナー別内訳・資産種別内訳・各グラフに負債は含めていない</div>
     </div>
   `;
 }
