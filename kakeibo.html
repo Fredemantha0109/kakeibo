@@ -1957,7 +1957,7 @@ function renderInputForm() {
   const monthBalances = allBalances[currentMonth] || {};
 
   // プレフィル元の月: currentMonth より前で最も新しい月
-  const sortedMonths = Object.keys(allBalances).sort();
+  const sortedMonths = getAvailableMonths();
   const prefillMonth = sortedMonths.filter(ym => ym < currentMonth).pop() || '';
   const prefillBalances = prefillMonth ? (allBalances[prefillMonth] || {}) : {};
 
