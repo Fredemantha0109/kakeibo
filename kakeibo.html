@@ -913,31 +913,16 @@
   <div id="page-settings" class="page">
     <div class="card">
       <div class="settings-section">
-        <div class="settings-title">🔑 Notion APIトークン</div>
+        <div class="settings-title">🔑 合言葉</div>
         <div class="settings-row">
-          <div class="settings-label">APIトークン（secret_で始まる文字列）</div>
+          <div class="settings-label">パスワード管理アプリで生成した長い文字列を貼り付けてください（16文字以上）</div>
         </div>
         <div class="settings-row">
-          <input type="password" class="settings-input" id="tokenInput" placeholder="ntn_xxxxxxxxxxxxxxxx" style="width:100%; max-width:500px;">
+          <input type="password" class="settings-input" id="appKeyInput" autocomplete="off" placeholder="パスワード管理アプリから貼り付け" style="width:100%; max-width:500px;">
         </div>
         <div class="settings-row">
-          <button class="btn-secondary" onclick="saveToken()">トークンを保存</button>
-          <div id="currentToken" class="token-display" style="flex:1; margin-left:16px;"></div>
-        </div>
-      </div>
-
-      <div class="settings-section section-gap">
-        <div class="settings-title">🔗 Yoko用共有リンク</div>
-        <div class="settings-row">
-          <div class="settings-label" style="font-size:13px; color:var(--text2);">このリンクをYokoにLINEで送るだけで自動ログインできます</div>
-        </div>
-        <div class="settings-row">
-          <button class="btn-secondary" onclick="generateShareLink()">リンクを生成</button>
-          <button class="btn-secondary" onclick="copyShareLink()" id="copyLinkBtn" style="display:none; margin-left:8px;">コピー</button>
-        </div>
-        <div id="shareLinkBox" style="display:none; margin-top:8px;">
-          <div style="font-size:11px; color:var(--text3); margin-bottom:4px;">⚠️ このリンクにはトークンが含まれます。Yoko以外に送らないでください。</div>
-          <div id="shareLinkText" style="font-family:var(--mono); font-size:11px; color:var(--accent); word-break:break-all; padding:8px; background:var(--surface2); border-radius:6px; border:1px solid var(--border);"></div>
+          <button class="btn-secondary" onclick="saveAppKey()">合言葉を保存</button>
+          <div id="currentAppKey" class="token-display" style="flex:1; margin-left:16px;"></div>
         </div>
       </div>
 
@@ -1135,17 +1120,21 @@ let trendChartInstance = null;
 let typeTrendChartInstance = null;
 let fixedCostChartInstance = null;
 let targetAmount = 30000000;
-// トークン取得（localStorage → sessionStorage の順で試みる）
-function getStoredToken() {
-  try { return localStorage.getItem('notion_token') || ''; } catch(e) {}
-  try { return sessionStorage.getItem('notion_token') || ''; } catch(e) {}
+// 合言葉取得（localStorage → sessionStorage の順で試みる）
+function getStoredAppKey() {
+  try { return localStorage.getItem('kakeibo_app_key') || ''; } catch(e) {}
+  try { return sessionStorage.getItem('kakeibo_app_key') || ''; } catch(e) {}
   return '';
 }
-function storeToken(val) {
-  try { localStorage.setItem('notion_token', val); return; } catch(e) {}
-  try { sessionStorage.setItem('notion_token', val); } catch(e) {}
+function storeAppKey(val) {
+  try { localStorage.setItem('kakeibo_app_key', val); return; } catch(e) {}
+  try { sessionStorage.setItem('kakeibo_app_key', val); } catch(e) {}
 }
-let notionToken = getStoredToken();
+function purgeLegacyNotionToken() {
+  try { localStorage.removeItem('notion_token'); } catch(e) {}
+  try { sessionStorage.removeItem('notion_token'); } catch(e) {}
+}
+let appKey = getStoredAppKey();
 
 function getCurrentMonth() {
   const now = new Date();
@@ -1154,11 +1143,11 @@ function getCurrentMonth() {
 
 // ===== Notion API =====
 async function notionFetch(path, method = 'GET', body = null) {
-  if (!notionToken) throw new Error('APIトークンが設定されていません');
+  if (!appKey) throw new Error('合言葉が設定されていません');
   const opts = {
     method,
     headers: {
-      'Authorization': `Bearer ${notionToken}`,
+      'X-Kakeibo-Key': appKey,
       'Content-Type': 'application/json'
     }
   };
@@ -1186,8 +1175,8 @@ async function queryDB(dbId, filter = null) {
 
 // ===== データ読み込み =====
 async function loadAll() {
-  if (!notionToken) {
-    setNavStatus('トークン未設定', false);
+  if (!appKey) {
+    setNavStatus('合言葉未設定', false);
     renderDashboardEmpty();
     return;
   }
@@ -1945,7 +1934,7 @@ function renderDashboardEmpty() {
   document.getElementById('dashboardContent').innerHTML = `
     <div class="card" style="text-align:center; padding:60px;">
       <div style="font-size:40px; margin-bottom:16px;">🔑</div>
-      <div style="color:var(--text2); margin-bottom:20px;">設定画面でNotion APIトークンを入力してください</div>
+      <div style="color:var(--text2); margin-bottom:20px;">設定画面で合言葉を入力してください</div>
       <button class="btn-primary" onclick="showPage('settings', this)">設定画面へ</button>
     </div>
   `;
@@ -2568,55 +2557,23 @@ async function retryFixedSave() {
 }
 
 // ===== 設定 =====
-function saveToken() {
-  const val = document.getElementById('tokenInput').value.trim();
-  if (!val.startsWith('secret_') && !val.startsWith('ntn_')) {
-    showToast('トークンは ntn_ または secret_ で始まる必要があります', 'error');
+function saveAppKey() {
+  const val = document.getElementById('appKeyInput').value.trim();
+  if (val.length < 16) {
+    showToast('合言葉は16文字以上にしてください', 'error');
     return;
   }
-  notionToken = val;
-  storeToken(val);
-  document.getElementById('tokenInput').value = '';
-  updateTokenDisplay();
-  showToast('トークンを保存しました', 'success');
+  appKey = val;
+  storeAppKey(val);
+  document.getElementById('appKeyInput').value = '';
+  updateAppKeyDisplay();
+  showToast('合言葉を保存しました', 'success');
   loadAll();
 }
 
-function updateTokenDisplay() {
-  const el = document.getElementById('currentToken');
-  if (notionToken) {
-    el.textContent = notionToken.slice(0, 12) + '••••••••••••••••••••';
-  } else {
-    el.textContent = '未設定';
-  }
-}
-
-function generateShareLink() {
-  if (!notionToken) {
-    showToast('先にAPIトークンを設定してください', 'error');
-    return;
-  }
-  const baseUrl = window.location.origin + window.location.pathname;
-  const link = `${baseUrl}#token=${notionToken}`;
-  document.getElementById('shareLinkText').textContent = link;
-  document.getElementById('shareLinkBox').style.display = 'block';
-  document.getElementById('copyLinkBtn').style.display = 'inline-block';
-}
-
-function copyShareLink() {
-  const link = document.getElementById('shareLinkText').textContent;
-  navigator.clipboard.writeText(link).then(() => {
-    showToast('リンクをコピーしました！', 'success');
-  }).catch(() => {
-    // フォールバック
-    const el = document.createElement('textarea');
-    el.value = link;
-    document.body.appendChild(el);
-    el.select();
-    document.execCommand('copy');
-    document.body.removeChild(el);
-    showToast('リンクをコピーしました！', 'success');
-  });
+function updateAppKeyDisplay() {
+  const el = document.getElementById('currentAppKey');
+  el.textContent = appKey ? '設定済み' : '未設定';
 }
 
 async function saveTarget() {
@@ -2643,7 +2600,7 @@ async function testConnection() {
   el.textContent = 'テスト中...';
   el.style.color = 'var(--text2)';
   try {
-    await queryDB(DB_IDS.settings);
+    await notionFetch('/v1/users/me');
     el.textContent = '✅ 接続成功！';
     el.style.color = 'var(--green)';
   } catch (e) {
@@ -2667,13 +2624,13 @@ function showPage(name, el) {
   // タブを開いた時点の allBalances で描き直す。
   // ダッシュボードだけ再描画していなかったため、保存後にタブを切り替えても
   // 古い数字が残り、ブラウザを更新しないと反映されなかった。API呼び出しは増えない。
-  // 未読み込み（トークン未設定・接続エラー）のときは案内表示を上書きしないよう再描画しない
+  // 未読み込み（合言葉未設定・接続エラー）のときは案内表示を上書きしないよう再描画しない
   if (name === 'dashboard' && accounts.length > 0) renderDashboard();
   if (name === 'input') renderInputForm();
   if (name === 'bulk') renderBulkForm();
   if (name === 'fixed') renderFixedForm();
   if (name === 'settings') {
-    updateTokenDisplay();
+    updateAppKeyDisplay();
     document.getElementById('targetInput').value = targetAmount;
   }
 }
@@ -2712,18 +2669,7 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ===== 初期化 =====
 window.addEventListener('load', () => {
-  // URLハッシュからトークンを自動読み込み
-  // 例: kakeibo.html#token=ntn_xxxxx
-  const hash = window.location.hash;
-  if (hash && hash.includes('token=')) {
-    const tokenFromUrl = hash.split('token=')[1].split('&')[0];
-    if (tokenFromUrl && (tokenFromUrl.startsWith('ntn_') || tokenFromUrl.startsWith('secret_'))) {
-      notionToken = tokenFromUrl;
-      storeToken(tokenFromUrl);
-      // セキュリティのためURLからトークンを除去
-      history.replaceState(null, '', window.location.pathname);
-    }
-  }
+  purgeLegacyNotionToken();
 
   // スマホ判定してボトムナビ表示
   function checkMobile() {
@@ -2734,7 +2680,7 @@ window.addEventListener('load', () => {
   checkMobile();
   window.addEventListener('resize', checkMobile);
 
-  updateTokenDisplay();
+  updateAppKeyDisplay();
   loadAll();
 });
 </script>
