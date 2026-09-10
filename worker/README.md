@@ -4,18 +4,25 @@
 
 ## 何をしているか
 
-`{WORKERS_URL}/notion/databases/xxx/query` のようなリクエストを受け、
-`/notion` を取り除いて `https://api.notion.com/v1/...` に中継するだけ。
-CORS ヘッダーを付けて返すので、ブラウザから直接 Notion を読み書きできる。
+ブラウザは合言葉だけを `X-Kakeibo-Key` で送る。Worker が `NOTION_TOKEN` を付けて
+`https://api.notion.com` へ転送する。許可オリジン・許可パス以外は拒否する。
 
-トークンは Worker 側では持たない。クライアント（kakeibo.html）が
-`Authorization: Bearer ntn_...` を毎回送る。ヘッダーが無ければ 401。
+## Cloudflare で設定する環境変数（値は書かない）
+
+| 名前 | 型 | 用途 |
+|---|---|---|
+| `NOTION_TOKEN` | シークレット | Notion のアクセストークン。Worker だけが持つ |
+| `APP_KEY` | シークレット | アプリの合言葉（24文字程度のランダム文字列を想定） |
+| `ALLOWED_ORIGIN` | 通常の変数 | 許可する Origin。本番は GitHub Pages のオリジン |
 
 ## 経緯
 
 2026-05 にダッシュボードで直接作成したため、`blue-cake-9a3b` という
-自動生成名のままだった。2026-09 に名前を付け直し、ソースをここに置いた。
-ロジックは当時のまま（挙動を変えない方針）。
+自動生成名のままだった。2026-09 に `kakeibo-notion-proxy` へ名前を付け直し、
+ソースをここに置いた。その後、トークンをブラウザに置かない構成へ切り替えた。
+
+`kakeibo.html` が向いているのは `kakeibo-notion-proxy`。旧 `blue-cake-9a3b` は
+リポジトリからは参照していない。
 
 ## デプロイ
 
@@ -24,9 +31,4 @@ cd worker
 npx wrangler deploy
 ```
 
-デプロイ後、`kakeibo.html` の `WORKERS_URL` を新しい URL に更新すること。
-
-## 関連
-
-`~/src/spring-ark-home/worker-notion/` の `notion-proxy` は別物。
-あちらは Worker 側 secret にトークンを持ち、オリジンを許可リストで限定する設計。
+または Cloudflare ダッシュボードに `src/index.js` を貼る。
