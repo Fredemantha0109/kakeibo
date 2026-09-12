@@ -1,3 +1,6 @@
 name = "kakeibo-notion-proxy"
 main = "src/index.js"
 compatibility_date = "2026-05-01"
+
+[vars]
+ALLOWED_ORIGIN = "https://fredemantha0109.github.io"
